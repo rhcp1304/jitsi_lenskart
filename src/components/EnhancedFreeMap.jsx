@@ -171,7 +171,7 @@ const EnhancedFreeMap = () => {
   if (!isLoaded) return <div>Loading...</div>;
 
   return (
-    <div className="relative w-screen h-screen">
+    <div className="relative w-full h-full overflow-hidden">
 
       {isPanelVisible && (
         <div className="absolute top-4 left-4 z-10 p-4 bg-white shadow-md rounded-md flex flex-col gap-2 w-80">

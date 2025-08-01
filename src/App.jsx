@@ -359,9 +359,9 @@ function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-900">
+    <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
-      <div className="bg-gray-800 p-4 flex justify-between items-center">
+      <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
         <h1 className="text-white text-xl font-semibold">Video Conference</h1>
         <div className="flex gap-2 items-center">
           {/* Direct Video Share Input */}
@@ -467,9 +467,9 @@ function App() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Jitsi Container */}
-        <div className={showMap || showPlaylist ? 'w-1/2 h-full bg-black' : 'w-full h-full bg-black'}>
+        <div className={`${showMap || showPlaylist ? 'w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0`}>
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
@@ -482,7 +482,7 @@ function App() {
           <div
             ref={jitsiContainerRef}
             id="jitsi-container"
-            className="w-full h-full"
+            className="w-full h-full flex-1 min-h-0"
             style={{
               minHeight: '400px',
               display: isInitializing ? 'none' : 'block' // Hide container while initializing
@@ -492,58 +492,60 @@ function App() {
 
         {/* Playlist Panel */}
         {showPlaylist && (
-          <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 overflow-y-auto">
-            <div className="p-4">
-              <h2 className="text-white text-lg font-semibold mb-4">Video Playlist</h2>
-              {playlist.length === 0 ? (
-                <div className="text-gray-400 text-center py-8">
-                  <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p>No videos in playlist</p>
-                  <p className="text-sm">Add YouTube URLs to build your playlist</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {playlist.map((video) => (
-                    <div key={video.id} className="bg-gray-700 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-white font-medium">{video.title}</h3>
-                          <p className="text-gray-400 text-sm truncate">{video.url}</p>
-                          <p className="text-gray-500 text-xs">Added: {video.addedAt}</p>
-                        </div>
-                        <div className="flex gap-2 ml-3">
-                          <Button
-                            onClick={() => shareFromPlaylist(video.url)}
-                            variant="default"
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700"
-                            disabled={isVideoSharing || isInitializing}
-                          >
-                            <Play className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            onClick={() => removeFromPlaylist(video.id)}
-                            variant="destructive"
-                            size="sm"
-                            className="bg-red-600 hover:bg-red-700"
-                            disabled={isInitializing}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+          <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                <h2 className="text-white text-lg font-semibold mb-4">Video Playlist</h2>
+                {playlist.length === 0 ? (
+                  <div className="text-gray-400 text-center py-8">
+                    <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No videos in playlist</p>
+                    <p className="text-sm">Add YouTube URLs to build your playlist</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {playlist.map((video) => (
+                      <div key={video.id} className="bg-gray-700 rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-white font-medium">{video.title}</h3>
+                            <p className="text-gray-400 text-sm truncate">{video.url}</p>
+                            <p className="text-gray-500 text-xs">Added: {video.addedAt}</p>
+                          </div>
+                          <div className="flex gap-2 ml-3 flex-shrink-0">
+                            <Button
+                              onClick={() => shareFromPlaylist(video.url)}
+                              variant="default"
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              disabled={isVideoSharing || isInitializing}
+                            >
+                              <Play className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              onClick={() => removeFromPlaylist(video.id)}
+                              variant="destructive"
+                              size="sm"
+                              className="bg-red-600 hover:bg-red-700"
+                              disabled={isInitializing}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {/* Map Container */}
         {showMap && !showPlaylist && (
-          <div className="w-1/2 h-full bg-white">
-            <div className="h-full">
+          <div className="w-1/2 h-full bg-white flex flex-col min-h-0">
+            <div className="h-full flex-1 min-h-0">
               <EnhancedFreeMap />
             </div>
           </div>
