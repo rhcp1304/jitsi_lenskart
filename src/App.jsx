@@ -92,23 +92,23 @@ function App() {
     }
   };
 
-  // Broadcast playlist using data channels
-  const broadcastPlaylistUpdate = (action, data) => {
+  // Broadcast the full playlist state to ensure reliable sync
+  const broadcastFullPlaylistUpdate = (playlistData) => {
     if (!jitsiApi) return;
 
     const message = {
       type: 'PLAYLIST_SYNC',
-      action: action, // 'ADD', 'REMOVE', 'FULL_SYNC', 'REORDER'
-      data: data,
+      action: 'FULL_SYNC',
+      data: playlistData,
       participantId: participantId,
       timestamp: Date.now(),
     };
 
     try {
       jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message));
-      console.log('Sent playlist update via data channel:', message);
+      console.log('Sent full playlist update via data channel:', message);
     } catch (error) {
-      console.error('Error sending playlist update via data channel:', error);
+      console.error('Error sending full playlist update via data channel:', error);
     }
   };
 
@@ -126,33 +126,10 @@ function App() {
         return; // Ignore own messages
       }
 
-      // Handle playlist updates
-      if (message.type === 'PLAYLIST_SYNC') {
-        switch (message.action) {
-          case 'ADD':
-            setPlaylist((prev) => {
-              const exists = prev.find((video) => video.url === message.data.url);
-              if (!exists) {
-                const newPlaylist = [...prev, message.data];
-                storePlaylistLocally(newPlaylist);
-                return newPlaylist;
-              }
-              return prev;
-            });
-            break;
-          case 'REMOVE':
-            setPlaylist((prev) => {
-              const newPlaylist = prev.filter((video) => video.id !== message.data.id);
-              storePlaylistLocally(newPlaylist);
-              return newPlaylist;
-            });
-            break;
-          case 'FULL_SYNC':
-          case 'REORDER':
-            setPlaylist(message.data);
-            storePlaylistLocally(message.data);
-            break;
-        }
+      // Only process FULL_SYNC messages for simplicity and reliability
+      if (message.type === 'PLAYLIST_SYNC' && message.action === 'FULL_SYNC') {
+        setPlaylist(message.data);
+        storePlaylistLocally(message.data);
       }
     } catch (error) {
       console.error('Error handling incoming message:', error);
@@ -237,14 +214,14 @@ function App() {
       api.addEventListener('videoConferenceJoined', (event) => {
         if (playlist.length > 0) {
           setTimeout(() => {
-            broadcastPlaylistUpdate('FULL_SYNC', playlist);
+            broadcastFullPlaylistUpdate(playlist);
           }, 1000);
         }
       });
       api.addEventListener('participantJoined', (event) => {
         setTimeout(() => {
           if (playlist.length > 0) {
-            broadcastPlaylistUpdate('FULL_SYNC', playlist);
+            broadcastFullPlaylistUpdate(playlist);
           }
         }, 1000);
       });
@@ -402,7 +379,7 @@ function App() {
         setPlaylist((prev) => {
           const updatedPlaylist = [...prev, newVideo];
           storePlaylistLocally(updatedPlaylist);
-          broadcastPlaylistUpdate('ADD', newVideo);
+          broadcastFullPlaylistUpdate(updatedPlaylist);
           return updatedPlaylist;
         });
         setVideoUrl('');
@@ -417,7 +394,7 @@ function App() {
         setPlaylist((prev) => {
           const updatedPlaylist = [...prev, newVideo];
           storePlaylistLocally(updatedPlaylist);
-          broadcastPlaylistUpdate('ADD', newVideo);
+          broadcastFullPlaylistUpdate(updatedPlaylist);
           return updatedPlaylist;
         });
         setVideoUrl('');
@@ -433,7 +410,7 @@ function App() {
     setPlaylist((prev) => {
       const newPlaylist = prev.filter((video) => video.id !== id);
       storePlaylistLocally(newPlaylist);
-      broadcastPlaylistUpdate('REMOVE', { id });
+      broadcastFullPlaylistUpdate(newPlaylist);
       return newPlaylist;
     });
   };
@@ -504,7 +481,7 @@ function App() {
       const draggedItem = newPlaylist.splice(dragItem.current, 1)[0];
       newPlaylist.splice(dragOverItem.current, 0, draggedItem);
       storePlaylistLocally(newPlaylist);
-      broadcastPlaylistUpdate('REORDER', newPlaylist);
+      broadcastFullPlaylistUpdate(newPlaylist);
       return newPlaylist;
     });
   };
