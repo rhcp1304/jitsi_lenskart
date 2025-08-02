@@ -5,8 +5,6 @@ import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set up the worker for PDF.js - REQUIRED FOR PDF RENDERING
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 function App() {
   const [showMap, setShowMap] = useState(false);
