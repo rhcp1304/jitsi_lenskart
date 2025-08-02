@@ -19,7 +19,10 @@ const libraries = ['places'];
 
 // Configuration for site analysis buttons
 const siteAnalysisButtons = [
+  // This button searches for any general optical stores, using 'eyewear' as a keyword hint
   { label: 'Competitors', icon: Store, placeType: ['optical store', 'optician'], keyword: 'eyewear', category: 'competitors' },
+  // This button is specifically for Lenskart stores, with a strict keyword match
+  { label: 'Lenskart Stores', icon: Store, placeType: ['optical store'], keyword: 'Lenskart', category: 'competitors', strictKeywordMatch: true },
   { label: 'Shopping Malls', icon: ShoppingCart, placeType: ['shopping_mall'], category: 'complementary' },
   { label: 'Hospitals', icon: Hospital, placeType: ['hospital'], category: 'complementary' },
   { label: 'Restaurants', icon: Utensils, placeType: ['restaurant'], category: 'complementary' },
@@ -274,7 +277,7 @@ const EnhancedFreeMap = () => {
     }
   };
 
-  const findNearbyPlaces = async (placeTypes, keyword, category) => {
+  const findNearbyPlaces = async (placeTypes, keyword, category, strictKeywordMatch) => {
     if (!selectedPlace || !placesServiceRef.current) return;
 
     setIsFindingPlaces(true);
@@ -299,7 +302,11 @@ const EnhancedFreeMap = () => {
           keyword: keyword,
         }, (results, status) => {
           if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-            resolve(results);
+            // Apply strict filtering if requested
+            const filteredResults = strictKeywordMatch
+              ? results.filter(place => place.name.toLowerCase().includes(keyword.toLowerCase()))
+              : results;
+            resolve(filteredResults);
           } else {
             console.warn(`Nearby search for type '${placeType}' failed with status: ${status}`);
             resolve([]);
@@ -578,7 +585,7 @@ const EnhancedFreeMap = () => {
                         {siteAnalysisButtons.map((button) => (
                           <Button
                             key={button.label}
-                            onClick={() => findNearbyPlaces(button.placeType, button.keyword, button.label)}
+                            onClick={() => findNearbyPlaces(button.placeType, button.keyword, button.label, button.strictKeywordMatch)}
                             className="flex items-center justify-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 transition-colors"
                             disabled={isFindingPlaces}
                           >
