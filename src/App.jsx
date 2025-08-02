@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button.jsx'
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2, Users, Volume, VolumeX } from 'lucide-react'
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2, Users, Volume, VolumeX, Wifi, WifiOff, FileText, Upload, ChevronLeft, ChevronRight, Presentation } from 'lucide-react'
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx'
 import './App.css'
 
@@ -19,8 +19,25 @@ function App() {
   const [participantId, setParticipantId] = useState('')
   const [isPlaylistSynced, setIsPlaylistSynced] = useState(false)
   const [audioMuted, setAudioMuted] = useState(false)
+  const [syncStatus, setSyncStatus] = useState('disconnected')
+
+  // Presentation states
+  const [presentations, setPresentations] = useState([])
+  const [showPresentations, setShowPresentations] = useState(false)
+  const [isUploadingPPT, setIsUploadingPPT] = useState(false)
+  const [currentPresentation, setCurrentPresentation] = useState(null)
+  const [currentSlide, setCurrentSlide] = useState(0)
+  const [isPresentationSharing, setIsPresentationSharing] = useState(false)
+
   const jitsiContainerRef = useRef(null)
   const [jitsiApi, setJitsiApi] = useState(null)
+  const syncIntervalRef = useRef(null)
+  const fileInputRef = useRef(null)
+
+  // Generate unique participant ID
+  const generateParticipantId = () => {
+    return `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  }
 
   // Function to fetch YouTube video title using oEmbed API
   const fetchYouTubeVideoTitle = async (videoUrl) => {
@@ -36,54 +53,357 @@ function App() {
     return 'Unknown Video'
   }
 
-  // Broadcast playlist changes to all participants
-  const broadcastPlaylistUpdate = (action, data) => {
-    if (jitsiApi) {
-      try {
-        const message = {
-          type: 'PLAYLIST_UPDATE',
-          action: action, // 'ADD', 'REMOVE', 'SYNC'
-          data: data,
-          participantId: participantId,
-          timestamp: Date.now()
-        }
-        jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message))
-        console.log('Broadcasted playlist update:', message)
-      } catch (error) {
-        console.error('Error broadcasting playlist update:', error)
+  // Convert PPT file to slides (using PDF.js or similar approach)
+  const processPPTFile = async (file) => {
+    try {
+      setIsUploadingPPT(true)
+
+      // For demo purposes, we'll create a simple presentation viewer
+      // In a real implementation, you'd use libraries like pdf-lib or convert PPT to PDF first
+      const fileUrl = URL.createObjectURL(file)
+
+      // Create a presentation object
+      const presentation = {
+        id: Date.now() + Math.random(),
+        name: file.name.replace(/\.[^/.]+$/, ""), // Remove extension
+        fileName: file.name,
+        fileUrl: fileUrl,
+        uploadedAt: new Date().toLocaleString(),
+        uploadedBy: participantId || 'Unknown',
+        type: 'presentation',
+        slides: [] // Will be populated when viewing
       }
+
+      // For now, we'll use an iframe approach to display the presentation
+      // In production, you'd want to convert PPT to images or PDF
+      return presentation
+
+    } catch (error) {
+      console.error('Error processing PPT file:', error)
+      throw error
     }
   }
 
-  // Handle incoming playlist updates from other participants
-  const handlePlaylistUpdate = (message) => {
-    try {
-      const update = JSON.parse(message.data)
-      if (update.type === 'PLAYLIST_UPDATE' && update.participantId !== participantId) {
-        console.log('Received playlist update:', update)
+  // Handle PPT file upload
+  const handlePPTUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
 
-        switch (update.action) {
+    const validTypes = [
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/pdf'
+    ]
+
+    if (!validTypes.includes(file.type)) {
+      alert('Please upload a valid PowerPoint (.ppt, .pptx) or PDF file')
+      return
+    }
+
+    try {
+      const presentation = await processPPTFile(file)
+
+      setPresentations(prev => {
+        const newPresentations = [...prev, presentation]
+        storePresentationsLocally(newPresentations)
+        return newPresentations
+      })
+
+      // Broadcast to all participants
+      broadcastPresentationUpdate('ADD', presentation)
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+
+    } catch (error) {
+      alert('Error uploading presentation. Please try again.')
+    } finally {
+      setIsUploadingPPT(false)
+    }
+  }
+
+  // Store presentations locally
+  const storePresentationsLocally = (presentationsData) => {
+    const data = {
+      presentations: presentationsData,
+      timestamp: Date.now(),
+      participantId: participantId
+    }
+    localStorage.setItem('jitsi_shared_presentations', JSON.stringify(data))
+  }
+
+  // Store playlist in localStorage with timestamp
+  const storePlaylistLocally = (playlistData) => {
+    const data = {
+      playlist: playlistData,
+      timestamp: Date.now(),
+      participantId: participantId
+    }
+    localStorage.setItem('jitsi_shared_playlist', JSON.stringify(data))
+  }
+
+  // Get playlist from localStorage
+  const getLocalPlaylist = () => {
+    try {
+      const data = localStorage.getItem('jitsi_shared_playlist')
+      if (data) {
+        return JSON.parse(data)
+      }
+    } catch (error) {
+      console.error('Error reading local playlist:', error)
+    }
+    return null
+  }
+
+  // Broadcast presentation updates
+  const broadcastPresentationUpdate = (action, data) => {
+    if (!jitsiApi) return
+
+    const message = {
+      type: 'PRESENTATION_SYNC',
+      action: action, // 'ADD', 'REMOVE', 'SHARE', 'SLIDE_CHANGE'
+      data: data,
+      participantId: participantId,
+      timestamp: Date.now()
+    }
+
+    try {
+      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message))
+      console.log('Sent presentation update via data channel:', message)
+    } catch (error) {
+      console.log('Data channel failed, trying chat:', error)
+    }
+
+    try {
+      const chatMessage = `[PRESENTATION_SYNC] ${JSON.stringify(message)}`
+      jitsiApi.executeCommand('sendChatMessage', chatMessage)
+      console.log('Sent presentation update via chat:', message)
+    } catch (error) {
+      console.log('Chat method also failed:', error)
+    }
+
+    storePresentationsLocally(action === 'FULL_SYNC' ? data : presentations)
+  }
+
+  // Broadcast playlist using multiple methods for reliability
+  const broadcastPlaylistUpdate = (action, data) => {
+    if (!jitsiApi) return
+
+    const message = {
+      type: 'PLAYLIST_SYNC',
+      action: action, // 'ADD', 'REMOVE', 'FULL_SYNC'
+      data: data,
+      participantId: participantId,
+      timestamp: Date.now()
+    }
+
+    try {
+      // Method 1: Try data channels
+      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message))
+      console.log('Sent via data channel:', message)
+    } catch (error) {
+      console.log('Data channel failed, trying chat:', error)
+    }
+
+    try {
+      // Method 2: Use chat as backup
+      const chatMessage = `[PLAYLIST_SYNC] ${JSON.stringify(message)}`
+      jitsiApi.executeCommand('sendChatMessage', chatMessage)
+      console.log('Sent via chat:', message)
+    } catch (error) {
+      console.log('Chat method also failed:', error)
+    }
+
+    // Method 3: Store locally for periodic sync
+    storePlaylistLocally(action === 'FULL_SYNC' ? data : playlist)
+    setSyncStatus('syncing')
+  }
+
+  // Handle incoming messages (both playlist and presentation updates)
+  const handleIncomingMessage = (messageData) => {
+    try {
+      let message
+
+      // Handle both direct data channel and chat messages
+      if (typeof messageData === 'string') {
+        if (messageData.startsWith('[PLAYLIST_SYNC]')) {
+          message = JSON.parse(messageData.replace('[PLAYLIST_SYNC]', '').trim())
+        } else if (messageData.startsWith('[PRESENTATION_SYNC]')) {
+          message = JSON.parse(messageData.replace('[PRESENTATION_SYNC]', '').trim())
+        } else {
+          message = JSON.parse(messageData)
+        }
+      } else if (messageData.data) {
+        if (messageData.data.startsWith('[PLAYLIST_SYNC]')) {
+          message = JSON.parse(messageData.data.replace('[PLAYLIST_SYNC]', '').trim())
+        } else if (messageData.data.startsWith('[PRESENTATION_SYNC]')) {
+          message = JSON.parse(messageData.data.replace('[PRESENTATION_SYNC]', '').trim())
+        } else {
+          message = JSON.parse(messageData.data)
+        }
+      } else {
+        return
+      }
+
+      if (message.participantId === participantId) return // Ignore own messages
+
+      // Handle playlist updates
+      if (message.type === 'PLAYLIST_SYNC') {
+        console.log('Received playlist update:', message)
+
+        switch (message.action) {
           case 'ADD':
             setPlaylist(prev => {
-              const exists = prev.find(video => video.id === update.data.id)
+              const exists = prev.find(video => video.id === message.data.id)
               if (!exists) {
-                return [...prev, update.data]
+                const newPlaylist = [...prev, message.data]
+                storePlaylistLocally(newPlaylist)
+                return newPlaylist
               }
               return prev
             })
             break
           case 'REMOVE':
-            setPlaylist(prev => prev.filter(video => video.id !== update.data.id))
+            setPlaylist(prev => {
+              const newPlaylist = prev.filter(video => video.id !== message.data.id)
+              storePlaylistLocally(newPlaylist)
+              return newPlaylist
+            })
             break
-          case 'SYNC':
-            setPlaylist(update.data)
+          case 'FULL_SYNC':
+            setPlaylist(message.data)
+            storePlaylistLocally(message.data)
             break
         }
         setIsPlaylistSynced(true)
+        setSyncStatus('connected')
+      }
+
+      // Handle presentation updates
+      if (message.type === 'PRESENTATION_SYNC') {
+        console.log('Received presentation update:', message)
+
+        switch (message.action) {
+          case 'ADD':
+            setPresentations(prev => {
+              const exists = prev.find(pres => pres.id === message.data.id)
+              if (!exists) {
+                const newPresentations = [...prev, message.data]
+                storePresentationsLocally(newPresentations)
+                return newPresentations
+              }
+              return prev
+            })
+            break
+          case 'REMOVE':
+            setPresentations(prev => {
+              const newPresentations = prev.filter(pres => pres.id !== message.data.id)
+              storePresentationsLocally(newPresentations)
+              return newPresentations
+            })
+            break
+          case 'SHARE':
+            // Handle presentation sharing
+            setCurrentPresentation(message.data.presentation)
+            setCurrentSlide(message.data.slide || 0)
+            setIsPresentationSharing(true)
+            break
+          case 'SLIDE_CHANGE':
+            if (isPresentationSharing && currentPresentation?.id === message.data.presentationId) {
+              setCurrentSlide(message.data.slide)
+            }
+            break
+          case 'STOP_SHARE':
+            setIsPresentationSharing(false)
+            setCurrentPresentation(null)
+            setCurrentSlide(0)
+            break
+        }
       }
     } catch (error) {
-      console.error('Error handling playlist update:', error)
+      console.error('Error handling incoming message:', error)
     }
+  }
+
+  // Share presentation with all participants
+  const sharePresentation = (presentation) => {
+    setCurrentPresentation(presentation)
+    setCurrentSlide(0)
+    setIsPresentationSharing(true)
+
+    broadcastPresentationUpdate('SHARE', {
+      presentation: presentation,
+      slide: 0
+    })
+  }
+
+  // Stop presentation sharing
+  const stopPresentationSharing = () => {
+    setIsPresentationSharing(false)
+    setCurrentPresentation(null)
+    setCurrentSlide(0)
+
+    broadcastPresentationUpdate('STOP_SHARE', {})
+  }
+
+  // Navigate slides
+  const nextSlide = () => {
+    if (currentPresentation && currentSlide < 9) { // Assuming max 10 slides for demo
+      const newSlide = currentSlide + 1
+      setCurrentSlide(newSlide)
+      broadcastPresentationUpdate('SLIDE_CHANGE', {
+        presentationId: currentPresentation.id,
+        slide: newSlide
+      })
+    }
+  }
+
+  const prevSlide = () => {
+    if (currentPresentation && currentSlide > 0) {
+      const newSlide = currentSlide - 1
+      setCurrentSlide(newSlide)
+      broadcastPresentationUpdate('SLIDE_CHANGE', {
+        presentationId: currentPresentation.id,
+        slide: newSlide
+      })
+    }
+  }
+
+  // Remove presentation
+  const removePresentation = (id) => {
+    setPresentations(prev => {
+      const newPresentations = prev.filter(pres => pres.id !== id)
+      storePresentationsLocally(newPresentations)
+      return newPresentations
+    })
+    broadcastPresentationUpdate('REMOVE', { id })
+  }
+
+  // Periodic sync check
+  const startPeriodicSync = () => {
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current)
+    }
+
+    syncIntervalRef.current = setInterval(() => {
+      if (jitsiApi && participantId) {
+        // Request full sync from other participants
+        broadcastPlaylistUpdate('REQUEST_SYNC', null)
+
+        // Check local storage for updates from other tabs/windows
+        const localData = getLocalPlaylist()
+        if (localData && localData.participantId !== participantId) {
+          const timeDiff = Date.now() - localData.timestamp
+          if (timeDiff < 30000) { // If updated within last 30 seconds
+            setPlaylist(localData.playlist)
+            setIsPlaylistSynced(true)
+            setSyncStatus('connected')
+          }
+        }
+      }
+    }, 5000) // Check every 5 seconds
   }
 
   // Force mute audio for shared videos
@@ -91,36 +411,63 @@ function App() {
     if (jitsiApi) {
       try {
         // Multiple approaches to ensure audio is muted
-        jitsiApi.executeCommand('toggleAudio') // Mute participant's audio
-
-        // Try to access and mute the shared video iframe
         setTimeout(() => {
+          // Method 1: Try to mute via Jitsi API
+          try {
+            jitsiApi.executeCommand('toggleAudio')
+            console.log('Toggled audio via Jitsi API')
+          } catch (e) {
+            console.log('Jitsi audio toggle failed:', e)
+          }
+
+          // Method 2: Find and modify YouTube iframe
           const sharedVideoIframe = document.querySelector('iframe[src*="youtube.com"]')
           if (sharedVideoIframe) {
             try {
-              // Add mute parameter to YouTube iframe
               const currentSrc = sharedVideoIframe.src
               if (!currentSrc.includes('mute=1')) {
-                sharedVideoIframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'mute=1'
+                sharedVideoIframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'mute=1&autoplay=1'
+                console.log('Modified iframe src for muting')
               }
             } catch (error) {
               console.log('Could not modify iframe directly:', error)
             }
           }
 
-          // CSS approach to hide audio controls
-          const style = document.createElement('style')
-          style.textContent = `
-            .shared-video audio,
-            .shared-video video {
-              muted: true !important;
-            }
-            .shared-video .ytp-volume-area,
-            .shared-video .ytp-mute-button {
-              display: none !important;
-            }
-          `
-          document.head.appendChild(style)
+          // Method 3: CSS approach to hide audio controls and force mute
+          const existingStyle = document.getElementById('video-mute-style')
+          if (!existingStyle) {
+            const style = document.createElement('style')
+            style.id = 'video-mute-style'
+            style.textContent = `
+              .shared-video audio,
+              .shared-video video,
+              iframe[src*="youtube.com"] {
+                muted: true !important;
+              }
+              .ytp-volume-area,
+              .ytp-mute-button,
+              .ytp-volume-slider {
+                display: none !important;
+              }
+              .shared-video-container {
+                position: relative;
+              }
+              .shared-video-container::after {
+                content: "🔇 MUTED";
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: rgba(255, 0, 0, 0.8);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                z-index: 1000;
+              }
+            `
+            document.head.appendChild(style)
+          }
 
           setAudioMuted(true)
         }, 2000)
@@ -133,15 +480,12 @@ function App() {
 
   const initializeJitsi = async () => {
     console.log('=== initializeJitsi called ===');
-    console.log(`State at call: isInitializing=${isInitializing}, jitsiInitialized=${jitsiInitialized}, jitsiApi=${!!jitsiApi}`);
 
-    // Prevent re-initialization if already initializing or already fully initialized
     if (isInitializing) {
       console.log('Already initializing Jitsi, skipping this call.');
       return;
     }
-    // Only skip if Jitsi is fully initialized AND we have an API instance.
-    // If jitsiInitialized is true but jitsiApi is null (e.g., after an error), we want to try again.
+
     if (jitsiInitialized && jitsiApi) {
         console.log('Jitsi is already initialized and API exists, skipping re-initialization.');
         return;
@@ -157,23 +501,18 @@ function App() {
       return;
     }
 
-    setIsInitializing(true); // Set initializing flag early
-    console.log('isInitializing set to true.');
+    setIsInitializing(true);
+    setSyncStatus('disconnected')
 
     try {
-      // **CRITICAL: Aggressively clear the container before creating a new instance**
-      // This loop reliably removes all children, preventing old Jitsi instances from lingering.
+      // Clear container
       if (jitsiContainerRef.current) {
-        console.log('Clearing jitsiContainerRef. Children before clearing:', jitsiContainerRef.current.children.length);
         while (jitsiContainerRef.current.firstChild) {
           jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
         }
-        console.log('Children after explicit clearing:', jitsiContainerRef.current.children.length);
       }
 
-      // Give the DOM a moment to process the removal before a new iframe is inserted
       await new Promise(resolve => setTimeout(resolve, 200));
-      console.log('After clearing and delay, container children before new API:', jitsiContainerRef.current.children.length);
 
       const config = {
         roomName: "vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/SampleAppRoutineSleepsWorkReportedly",
@@ -186,14 +525,13 @@ function App() {
           prejoinPageEnabled: true,
           enableWelcomePage: false,
           enableClosePage: false,
-          // Enhanced shared video configuration
-          sharedVideoService: {
-            disabled: false,
-            hideControls: false, // Show controls including seek bar
-          },
-          // Enable data channels for playlist sharing
+          // Enhanced configuration for better messaging
           channelLastN: -1,
           enableDataChannels: true,
+          enableP2P: true,
+          p2p: {
+            enabled: true
+          }
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
@@ -216,61 +554,64 @@ function App() {
 
       if (jwtToken && jwtToken.trim() && jwtToken.trim().length > 10) {
         config.jwt = jwtToken.trim();
-        console.log('Initializing Jitsi with JWT token.');
-      } else {
-        console.log('Initializing Jitsi without JWT.');
       }
 
       const api = new window.JitsiMeetExternalAPI("8x8.vc", config);
-      console.log('JitsiMeetExternalAPI instance created.');
 
-      // Add comprehensive event listeners
-      api.addEventListener('readyToClose', () => {
-        console.log('Jitsi event: readyToClose');
-      })
+      // Generate participant ID
+      const newParticipantId = generateParticipantId()
+      setParticipantId(newParticipantId)
 
+      // Event listeners
       api.addEventListener('videoConferenceJoined', (event) => {
-        console.log('Jitsi event: Video conference joined:', event);
-        // Set participant ID for playlist sharing
-        const id = event.id || `participant_${Date.now()}`
-        setParticipantId(id)
+        console.log('Joined conference:', event);
+        setSyncStatus('connected')
 
-        // Broadcast current playlist to new participants
-        if (playlist.length > 0) {
-          setTimeout(() => {
-            broadcastPlaylistUpdate('SYNC', playlist)
-          }, 2000)
+        // Load existing data from localStorage
+        const localData = getLocalPlaylist()
+        if (localData && localData.playlist) {
+          setPlaylist(localData.playlist)
+          setIsPlaylistSynced(true)
         }
-      })
 
-      api.addEventListener('videoConferenceLeft', (event) => {
-        console.log('Jitsi event: Video conference left:', event);
+        // Start periodic sync
+        setTimeout(() => {
+          startPeriodicSync()
+          // Request current data from other participants
+          broadcastPlaylistUpdate('REQUEST_SYNC', null)
+        }, 2000)
       })
 
       api.addEventListener('participantJoined', (event) => {
-        console.log('Jitsi event: Participant joined:', event);
-        // Broadcast current playlist to new participant
-        if (playlist.length > 0) {
-          setTimeout(() => {
-            broadcastPlaylistUpdate('SYNC', playlist)
-          }, 1000)
+        console.log('Participant joined:', event);
+        // Send current data to new participant
+        setTimeout(() => {
+          if (playlist.length > 0) {
+            broadcastPlaylistUpdate('FULL_SYNC', playlist)
+          }
+          if (presentations.length > 0) {
+            broadcastPresentationUpdate('FULL_SYNC', presentations)
+          }
+        }, 1000)
+      })
+
+      // Listen for data channel messages
+      api.addEventListener('endpointTextMessageReceived', (event) => {
+        console.log('Received endpoint message:', event);
+        handleIncomingMessage(event)
+      })
+
+      // Listen for chat messages as backup
+      api.addEventListener('incomingMessage', (event) => {
+        console.log('Received chat message:', event);
+        if (event.message && (event.message.includes('[PLAYLIST_SYNC]') || event.message.includes('[PRESENTATION_SYNC]'))) {
+          handleIncomingMessage(event.message)
         }
       })
 
-      api.addEventListener('participantLeft', (event) => {
-        console.log('Jitsi event: Participant left:', event);
-      })
-
-      // Listen for data channel messages (playlist updates)
-      api.addEventListener('endpointTextMessageReceived', (event) => {
-        console.log('Received text message:', event);
-        handlePlaylistUpdate(event)
-      })
-
-      // Listen for shared video events
+      // Shared video events
       api.addEventListener('sharedVideoStarted', (event) => {
         console.log('Shared video started:', event);
-        // Force mute audio when video starts
         setTimeout(() => {
           forceAudioMute()
         }, 1000)
@@ -281,11 +622,10 @@ function App() {
         setAudioMuted(false)
       })
 
-      // Wait for API to be ready by checking for a reliable method
+      // Wait for API to be ready
       await new Promise(resolve => {
         const checkReady = () => {
           if (api.isAudioMuted !== undefined && api.isVideoMuted !== undefined) {
-            console.log('Jitsi API reported ready.');
             resolve();
           } else {
             setTimeout(checkReady, 100);
@@ -296,99 +636,86 @@ function App() {
 
       setJitsiApi(api);
       setJitsiInitialized(true);
-      console.log('Jitsi state updated: jitsiApi set, jitsiInitialized true.');
-      console.log('Jitsi initialized successfully.');
 
     } catch (error) {
       console.error('Error during Jitsi initialization:', error);
       setJitsiInitialized(false);
       setJitsiApi(null);
+      setSyncStatus('disconnected')
     } finally {
       setIsInitializing(false);
-      console.log('isInitializing set to false. === initializeJitsi finished ===');
     }
   }
 
   const cleanupJitsi = () => {
     console.log('=== cleanupJitsi called ===');
-    console.log(`State at call: jitsiApi=${!!jitsiApi}, jitsiInitialized=${jitsiInitialized}`);
+
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current)
+      syncIntervalRef.current = null
+    }
 
     if (jitsiApi) {
       try {
         jitsiApi.dispose();
-        console.log('Jitsi API dispose() called.');
       } catch (error) {
         console.error('Error disposing Jitsi API:', error);
       }
-      setJitsiApi(null); // Clear the API state immediately
-      console.log('jitsiApi state set to null.');
-    } else {
-        console.log('No Jitsi API instance to dispose.');
+      setJitsiApi(null);
     }
-    setJitsiInitialized(false); // Reset initialization state
+
+    setJitsiInitialized(false);
     setIsVideoSharing(false);
     setCurrentSharedVideo('');
     setParticipantId('');
     setIsPlaylistSynced(false);
     setAudioMuted(false);
+    setSyncStatus('disconnected')
+    setIsPresentationSharing(false);
+    setCurrentPresentation(null);
+    setCurrentSlide(0);
 
-    // Ensure the container is truly empty after disposal
     if (jitsiContainerRef.current) {
-      console.log('Clearing jitsiContainerRef in cleanup. Children before clearing:', jitsiContainerRef.current.children.length);
       while (jitsiContainerRef.current.firstChild) {
         jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
       }
-      console.log('Children after explicit clearing in cleanup:', jitsiContainerRef.current.children.length);
     }
-    console.log('=== cleanupJitsi finished ===');
   }
 
   useEffect(() => {
     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
-    console.log('useEffect triggered.');
-
-    // Check if the script is already loaded to prevent redundant appends
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
 
     if (!existingScript) {
-      console.log('Jitsi External API script not found, appending new script.');
       const script = document.createElement('script');
       script.src = jitsiScriptUrl;
       script.async = true;
       script.onload = () => {
-        console.log('Jitsi External API script loaded via new append. Initializing...');
         initializeJitsi();
       };
       script.onerror = () => {
-        console.error('Failed to load Jitsi External API script via new append.');
+        console.error('Failed to load Jitsi External API script.');
       };
       document.head.appendChild(script);
 
-      // Cleanup function for useEffect: only disposes Jitsi, does NOT remove the script from DOM.
-      // This is crucial for React Strict Mode's double render behavior.
       return () => {
-        console.log('useEffect cleanup: Disposing Jitsi (script remains in DOM).');
         cleanupJitsi();
-        // The script is intentionally NOT removed here. It stays in the head.
-        // It will only be removed if the component unmounts entirely (e.g., navigating to another page).
       };
     } else {
-      console.log('Jitsi External API script already present. Attempting initialization directly.');
       initializeJitsi();
-      // Provide a cleanup function even if script wasn't newly added, in case of component unmount
       return () => {
-        console.log('useEffect cleanup: Disposing Jitsi (script was pre-existing).');
         cleanupJitsi();
       };
     }
-  }, []); // Empty dependency array means this effect runs once on mount and cleans up on unmount
-
+  }, []);
 
   const toggleMap = () => {
-    console.log(`Toggling Map: From ${showMap} to ${!showMap}`);
     setShowMap(!showMap)
     if (showPlaylist) {
       setShowPlaylist(false)
+    }
+    if (showPresentations) {
+      setShowPresentations(false)
     }
   }
 
@@ -398,15 +725,11 @@ function App() {
       if (videoId) {
         const fullUrl = `https://www.youtube.com/watch?v=${videoId}`
         try {
-          // Start sharing with enhanced configuration
           jitsiApi.executeCommand('startShareVideo', fullUrl)
-
           setIsVideoSharing(true)
           setCurrentSharedVideo(videoUrl)
           setVideoUrl('')
-          console.log('Video sharing started:', fullUrl)
 
-          // Force audio mute after a delay
           setTimeout(() => {
             forceAudioMute()
           }, 2000)
@@ -432,7 +755,6 @@ function App() {
         setIsVideoSharing(false)
         setCurrentSharedVideo('')
         setAudioMuted(false)
-        console.log('Video sharing stopped')
       } catch (error) {
         console.error('Error stopping video:', error)
       }
@@ -445,11 +767,10 @@ function App() {
       const videoId = extractYouTubeVideoId(videoUrl)
 
       try {
-        // Fetch the actual video title
         const videoTitle = await fetchYouTubeVideoTitle(videoUrl)
 
         const newVideo = {
-          id: Date.now(),
+          id: Date.now() + Math.random(), // Ensure unique ID
           url: videoUrl,
           videoId: videoId,
           title: videoTitle,
@@ -457,25 +778,32 @@ function App() {
           addedBy: participantId || 'Unknown'
         }
 
-        setPlaylist(prev => [...prev, newVideo])
+        setPlaylist(prev => {
+          const newPlaylist = [...prev, newVideo]
+          storePlaylistLocally(newPlaylist)
+          return newPlaylist
+        })
         setVideoUrl('')
 
-        // Broadcast the addition to all participants
+        // Broadcast to all participants
         broadcastPlaylistUpdate('ADD', newVideo)
+        setIsPlaylistSynced(true)
 
-        console.log('Added video to shared playlist:', videoTitle)
       } catch (error) {
         console.error('Error adding video to playlist:', error)
-        // Fallback to generic title if API fails
         const newVideo = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           url: videoUrl,
           videoId: videoId,
           title: `Video ${playlist.length + 1}`,
           addedAt: new Date().toLocaleString(),
           addedBy: participantId || 'Unknown'
         }
-        setPlaylist(prev => [...prev, newVideo])
+        setPlaylist(prev => {
+          const newPlaylist = [...prev, newVideo]
+          storePlaylistLocally(newPlaylist)
+          return newPlaylist
+        })
         broadcastPlaylistUpdate('ADD', newVideo)
         setVideoUrl('')
       } finally {
@@ -487,22 +815,21 @@ function App() {
   }
 
   const removeFromPlaylist = (id) => {
-    setPlaylist(prev => prev.filter(video => video.id !== id))
-    // Broadcast the removal to all participants
+    setPlaylist(prev => {
+      const newPlaylist = prev.filter(video => video.id !== id)
+      storePlaylistLocally(newPlaylist)
+      return newPlaylist
+    })
     broadcastPlaylistUpdate('REMOVE', { id })
   }
 
   const shareFromPlaylist = (url) => {
     if (jitsiApi) {
       try {
-        // Share video with enhanced configuration
         jitsiApi.executeCommand('startShareVideo', url)
-
         setIsVideoSharing(true)
         setCurrentSharedVideo(url)
-        console.log('Video from shared playlist shared:', url)
 
-        // Force audio mute after a delay
         setTimeout(() => {
           forceAudioMute()
         }, 2000)
@@ -521,6 +848,19 @@ function App() {
     if (showMap) {
       setShowMap(false)
     }
+    if (showPresentations) {
+      setShowPresentations(false)
+    }
+  }
+
+  const togglePresentations = () => {
+    setShowPresentations(!showPresentations)
+    if (showMap) {
+      setShowMap(false)
+    }
+    if (showPlaylist) {
+      setShowPlaylist(false)
+    }
   }
 
   const extractYouTubeVideoId = (url) => {
@@ -530,36 +870,31 @@ function App() {
   }
 
   const handleJwtSubmit = async () => {
-    console.log('handleJwtSubmit called. Applying JWT.');
     setShowJwtModal(false);
-
-    // Clean up current instance first
     cleanupJitsi();
-
-    // Wait for cleanup to complete before re-initializing
     await new Promise(resolve => setTimeout(resolve, 500));
-    console.log('Delay after cleanup for JWT applied.');
-
-    // Re-initialize with new JWT
     await initializeJitsi();
-    console.log('JWT submission and re-initialization sequence complete.');
   }
 
   const refreshJitsi = async () => {
-    console.log('Refreshing Jitsi...');
-    cleanupJitsi(); // Dispose current Jitsi instance
-
-    // Wait for cleanup to fully process (e.g., iframe removal)
+    cleanupJitsi();
     await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log('Delay after cleanup for Refresh applied.');
-
-    // Re-initialize Jitsi
     await initializeJitsi();
-    console.log('Refresh sequence complete.');
   }
 
   const toggleJwtModal = () => {
     setShowJwtModal(!showJwtModal)
+  }
+
+  const getSyncStatusIcon = () => {
+    switch (syncStatus) {
+      case 'connected':
+        return <Wifi className="w-4 h-4 text-green-400" />
+      case 'syncing':
+        return <RefreshCw className="w-4 h-4 text-yellow-400 animate-spin" />
+      default:
+        return <WifiOff className="w-4 h-4 text-red-400" />
+    }
   }
 
   return (
@@ -568,18 +903,25 @@ function App() {
       <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-white text-xl font-semibold">NSO Team Meeting</h1>
-          {isPlaylistSynced && (
-            <div className="flex items-center gap-1 text-green-400 text-sm">
-              <Users className="w-4 h-4" />
-              <span>Shared</span>
-            </div>
-          )}
-          {audioMuted && (
-            <div className="flex items-center gap-1 text-red-400 text-sm">
-              <VolumeX className="w-4 h-4" />
-              <span>Muted</span>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {getSyncStatusIcon()}
+            <span className="text-sm text-gray-300">
+              {syncStatus === 'connected' ? 'Synced' :
+               syncStatus === 'syncing' ? 'Syncing...' : 'Offline'}
+            </span>
+            {audioMuted && (
+              <div className="flex items-center gap-1 text-red-400 text-sm">
+                <VolumeX className="w-4 h-4" />
+                <span>Muted</span>
+              </div>
+            )}
+            {isPresentationSharing && (
+              <div className="flex items-center gap-1 text-blue-400 text-sm">
+                <Presentation className="w-4 h-4" />
+                <span>Presenting</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 items-center">
           {/* Direct Video Share Input */}
@@ -595,9 +937,9 @@ function App() {
                   shareVideoDirectly()
                 }
               }}
-              disabled={isVideoSharing || isInitializing || isLoadingVideoTitle}
+              disabled={isVideoSharing || isInitializing || isLoadingVideoTitle || isPresentationSharing}
             />
-            {!isVideoSharing ? (
+            {!isVideoSharing && !isPresentationSharing ? (
               <>
                 <Button
                   onClick={shareVideoDirectly}
@@ -619,18 +961,18 @@ function App() {
                   ) : (
                     <Plus className="w-4 h-4" />
                   )}
-                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Shared Playlist'}
+                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Team Playlist'}
                 </Button>
               </>
             ) : (
               <Button
-                onClick={stopVideoSharing}
+                onClick={isPresentationSharing ? stopPresentationSharing : stopVideoSharing}
                 variant="destructive"
                 className="flex items-center gap-2 bg-red-600 hover:bg-red-700"
                 disabled={isInitializing}
               >
                 <X className="w-4 h-4" />
-                Stop Video
+                {isPresentationSharing ? 'Stop Presentation' : 'Stop Video'}
               </Button>
             )}
           </div>
@@ -659,13 +1001,22 @@ function App() {
             {isInitializing ? 'Loading...' : 'Refresh'}
           </Button>
           <Button
+            onClick={togglePresentations}
+            variant={showPresentations ? "destructive" : "default"}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700"
+            disabled={isInitializing}
+          >
+            <FileText className="w-4 h-4" />
+            Presentations ({presentations.length})
+          </Button>
+          <Button
             onClick={togglePlaylist}
             variant={showPlaylist ? "destructive" : "default"}
             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
             disabled={isInitializing}
           >
             <List className="w-4 h-4" />
-            Shared Playlist ({playlist.length})
+            Videos ({playlist.length})
           </Button>
           <Button
             onClick={toggleMap}
@@ -691,7 +1042,7 @@ function App() {
       {/* Main Content */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Jitsi Container */}
-        <div className={`${showMap || showPlaylist ? 'w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0`}>
+        <div className={`${showMap || showPlaylist || showPresentations ? 'w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
@@ -701,45 +1052,174 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* Presentation Overlay */}
+          {isPresentationSharing && currentPresentation && (
+            <div className="absolute inset-0 bg-black bg-opacity-90 z-50 flex flex-col">
+              <div className="flex justify-between items-center p-4 bg-gray-800">
+                <h3 className="text-white text-lg font-semibold">{currentPresentation.name}</h3>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={prevSlide}
+                    variant="outline"
+                    size="sm"
+                    disabled={currentSlide === 0}
+                    className="text-white border-gray-600"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-white text-sm">
+                    Slide {currentSlide + 1} / 10
+                  </span>
+                  <Button
+                    onClick={nextSlide}
+                    variant="outline"
+                    size="sm"
+                    disabled={currentSlide === 9}
+                    className="text-white border-gray-600"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    onClick={stopPresentationSharing}
+                    variant="destructive"
+                    size="sm"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center p-4">
+                <div className="bg-white rounded-lg shadow-lg max-w-4xl max-h-full overflow-hidden">
+                  {/* Presentation content - for demo, showing slide number */}
+                  <div className="w-full h-96 flex items-center justify-center text-6xl font-bold text-gray-800">
+                    Slide {currentSlide + 1}
+                  </div>
+                  <div className="p-4 text-center text-gray-600">
+                    {currentPresentation.name} - Slide {currentSlide + 1}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div
             ref={jitsiContainerRef}
             id="jitsi-container"
             className="w-full h-full flex-1 min-h-0"
             style={{
               minHeight: '400px',
-              display: isInitializing ? 'none' : 'block' // Hide container while initializing
+              display: isInitializing ? 'none' : 'block'
             }}
           />
         </div>
 
-        {/* Shared Playlist Panel */}
+        {/* Presentations Panel */}
+        {showPresentations && (
+          <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-white text-lg font-semibold">Team Presentations</h2>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".ppt,.pptx,.pdf"
+                      onChange={handlePPTUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      variant="default"
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                      disabled={isUploadingPPT || isInitializing}
+                    >
+                      {isUploadingPPT ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4" />
+                      )}
+                      {isUploadingPPT ? 'Uploading...' : 'Upload PPT'}
+                    </Button>
+                  </div>
+                </div>
+                {presentations.length === 0 ? (
+                  <div className="text-gray-400 text-center py-8">
+                    <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No presentations uploaded</p>
+                    <p className="text-sm">Upload PowerPoint or PDF files to share with your team</p>
+                    <p className="text-xs mt-2 text-gray-500">Supported formats: .ppt, .pptx, .pdf</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {presentations.map((presentation) => (
+                      <div key={presentation.id} className="bg-gray-700 rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-white font-medium text-sm leading-tight mb-1">{presentation.name}</h3>
+                            <p className="text-gray-400 text-xs">{presentation.fileName}</p>
+                            <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
+                              <span>Uploaded: {presentation.uploadedAt}</span>
+                              {presentation.uploadedBy && (
+                                <span>• By: {presentation.uploadedBy.substring(0, 20)}...</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 ml-3 flex-shrink-0">
+                            <Button
+                              onClick={() => sharePresentation(presentation)}
+                              variant="default"
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              disabled={isPresentationSharing || isVideoSharing || isInitializing}
+                              title="Present to all participants"
+                            >
+                              <Presentation className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              onClick={() => removePresentation(presentation.id)}
+                              variant="destructive"
+                              size="sm"
+                              className="bg-red-600 hover:bg-red-700"
+                              disabled={isInitializing}
+                              title="Remove presentation"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Team Playlist Panel */}
         {showPlaylist && (
           <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto">
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white text-lg font-semibold">Shared Video Playlist</h2>
+                  <h2 className="text-white text-lg font-semibold">Team Video Playlist</h2>
                   <div className="flex items-center gap-2 text-sm">
-                    {isPlaylistSynced && (
-                      <div className="flex items-center gap-1 text-green-400">
-                        <Users className="w-4 h-4" />
-                        <span>Synced</span>
-                      </div>
-                    )}
-                    {audioMuted && (
-                      <div className="flex items-center gap-1 text-red-400">
-                        <VolumeX className="w-4 h-4" />
-                        <span>Auto-Muted</span>
-                      </div>
-                    )}
+                    {getSyncStatusIcon()}
+                    <span className="text-gray-300">
+                      {syncStatus === 'connected' ? 'Live Sync' :
+                       syncStatus === 'syncing' ? 'Syncing...' : 'Offline'}
+                    </span>
                   </div>
                 </div>
                 {playlist.length === 0 ? (
                   <div className="text-gray-400 text-center py-8">
                     <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No videos in shared playlist</p>
-                    <p className="text-sm">Add YouTube URLs to build your team playlist</p>
-                    <p className="text-xs mt-2 text-gray-500">All participants can see and manage this playlist</p>
+                    <p>No videos in team playlist</p>
+                    <p className="text-sm">Add YouTube URLs to build your shared playlist</p>
+                    <p className="text-xs mt-2 text-gray-500">All team members can see and manage this playlist</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -752,7 +1232,7 @@ function App() {
                             <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
                               <span>Added: {video.addedAt}</span>
                               {video.addedBy && (
-                                <span>• By: {video.addedBy}</span>
+                                <span>• By: {video.addedBy.substring(0, 20)}...</span>
                               )}
                             </div>
                           </div>
@@ -762,8 +1242,8 @@ function App() {
                               variant="default"
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"
-                              disabled={isVideoSharing || isInitializing}
-                              title="Share this video (auto-muted with visible seek bar)"
+                              disabled={isVideoSharing || isInitializing || isPresentationSharing}
+                              title="Share this video (auto-muted)"
                             >
                               <Play className="w-4 h-4" />
                             </Button>
@@ -773,7 +1253,7 @@ function App() {
                               size="sm"
                               className="bg-red-600 hover:bg-red-700"
                               disabled={isInitializing}
-                              title="Remove from shared playlist"
+                              title="Remove from team playlist"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -789,7 +1269,7 @@ function App() {
         )}
 
         {/* Map Container */}
-        {showMap && !showPlaylist && (
+        {showMap && !showPlaylist && !showPresentations && (
           <div className="w-1/2 h-full bg-white flex flex-col min-h-0">
             <div className="h-full flex-1 min-h-0">
               <EnhancedFreeMap />
@@ -811,7 +1291,7 @@ function App() {
                 onClick={toggleJwtModal}
                 variant="ghost"
                 size="sm"
-                className="text-gray-400 hover:text-white"
+                className="text-white hover:text-white"
               >
                 <X className="w-4 h-4" />
               </Button>
