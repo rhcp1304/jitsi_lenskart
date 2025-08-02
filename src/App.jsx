@@ -189,7 +189,8 @@ function App() {
       setPlaylist([]);
       localStorage.removeItem('jitsi_shared_playlist');
 
-      loadPlaylistFromLocalStorage();
+      // We don't load from local storage to ensure the playlist is always empty on start
+      // loadPlaylistFromLocalStorage();
 
       await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -401,10 +402,12 @@ function App() {
           videoId: videoId,
           title: videoTitle,
         };
-        const updatedPlaylist = [...playlist, newVideo];
-        setPlaylist(updatedPlaylist);
-        storePlaylistLocally(updatedPlaylist);
-        broadcastPlaylistUpdate('ADD', newVideo);
+        setPlaylist((prev) => {
+          const updatedPlaylist = [...prev, newVideo];
+          storePlaylistLocally(updatedPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo);
+          return updatedPlaylist;
+        });
         setVideoUrl('');
       } catch (error) {
         console.error('Error adding video to playlist:', error);
@@ -414,10 +417,12 @@ function App() {
           videoId: videoId,
           title: `Video ${playlist.length + 1}`,
         };
-        const updatedPlaylist = [...playlist, newVideo];
-        setPlaylist(updatedPlaylist);
-        storePlaylistLocally(updatedPlaylist);
-        broadcastPlaylistUpdate('ADD', newVideo);
+        setPlaylist((prev) => {
+          const updatedPlaylist = [...prev, newVideo];
+          storePlaylistLocally(updatedPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo);
+          return updatedPlaylist;
+        });
         setVideoUrl('');
       } finally {
         setIsLoadingVideoTitle(false);
@@ -428,10 +433,12 @@ function App() {
   };
 
   const removeFromPlaylist = (id) => {
-    const newPlaylist = playlist.filter((video) => video.id !== id);
-    setPlaylist(newPlaylist);
-    storePlaylistLocally(newPlaylist);
-    broadcastPlaylistUpdate('REMOVE', { id });
+    setPlaylist((prev) => {
+      const newPlaylist = prev.filter((video) => video.id !== id);
+      storePlaylistLocally(newPlaylist);
+      broadcastPlaylistUpdate('REMOVE', { id });
+      return newPlaylist;
+    });
   };
 
   const shareFromPlaylist = (url) => {
@@ -657,7 +664,6 @@ function App() {
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-white text-lg font-semibold">Playlist</h2>
               </div>
-              {/* Request 7: Search box */}
               <input
                 type="text"
                 placeholder="Search videos by name..."
@@ -700,12 +706,10 @@ function App() {
                       }}
                     >
                       <div className="flex items-center justify-between">
-                        {/* Request 9: Only display video name */}
                         <div className="flex-1 min-w-0">
                           <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
                         </div>
                         <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                          {/* Request 6: Play/Stop video from playlist */}
                           <Button
                             onClick={() => shareFromPlaylist(video.url)}
                             variant="ghost"
@@ -767,7 +771,6 @@ function App() {
               className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-500 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
             />
             <div className="mt-4 flex justify-end">
-              {/* Request 4: Replace "Apply JWT and Refresh" with "Apply JWT" */}
               <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
                 Apply JWT
               </Button>
