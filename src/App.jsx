@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2 } from 'lucide-react';
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2, Users, Volume, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -21,9 +21,13 @@ function App() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false);
   const [participantId, setParticipantId] = useState('');
+  const [isPlaylistSynced, setIsPlaylistSynced] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('disconnected');
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
+  const syncIntervalRef = useRef(null);
 
   // Generate unique participant ID
   const generateParticipantId = () => {
@@ -98,6 +102,7 @@ function App() {
 
     // Method 3: Store locally for periodic sync
     storePlaylistLocally(action === 'FULL_SYNC' ? data : playlist);
+    setSyncStatus('syncing');
   };
 
   // Handle incoming messages
@@ -152,9 +157,99 @@ function App() {
             storePlaylistLocally(message.data);
             break;
         }
+        setIsPlaylistSynced(true);
+        setSyncStatus('connected');
       }
     } catch (error) {
       console.error('Error handling incoming message:', error);
+    }
+  };
+
+  // Periodic sync check
+  const startPeriodicSync = () => {
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+    }
+
+    syncIntervalRef.current = setInterval(() => {
+      if (jitsiApi && participantId) {
+        // Request full sync from other participants
+        broadcastPlaylistUpdate('REQUEST_SYNC', null);
+
+        // Check local storage for updates from other tabs/windows
+        const localData = getLocalPlaylist();
+        if (localData && localData.participantId !== participantId) {
+          const timeDiff = Date.now() - localData.timestamp;
+          if (timeDiff < 30000) {
+            // If updated within last 30 seconds
+            setPlaylist(localData.playlist);
+            setIsPlaylistSynced(true);
+            setSyncStatus('connected');
+          }
+        }
+      }
+    }, 5000); // Check every 5 seconds
+  };
+
+  // Force mute audio for shared videos
+  const forceAudioMute = () => {
+    try {
+      const sharedVideoIframes = document.querySelectorAll('iframe[src*="youtube.com/embed"]');
+      sharedVideoIframes.forEach(iframe => {
+        if (!iframe.src.includes('mute=1')) {
+          const currentSrc = iframe.src;
+          iframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'mute=1&autoplay=1';
+          console.log('Forced mute by modifying iframe src:', iframe.src);
+        }
+      });
+
+      const allVideos = document.querySelectorAll('video, audio');
+      allVideos.forEach(element => {
+        if (!element.muted) {
+          element.muted = true;
+          element.volume = 0;
+          console.log('Forced mute on video/audio element:', element);
+        }
+      });
+
+      // CSS approach to hide audio controls and force mute
+      const existingStyle = document.getElementById('video-mute-style');
+      if (!existingStyle) {
+        const style = document.createElement('style');
+        style.id = 'video-mute-style';
+        style.textContent = `
+          .shared-video-container iframe,
+          .shared-video-container video,
+          .shared-video-container audio {
+            muted: true !important;
+          }
+          .ytp-volume-area,
+          .ytp-mute-button,
+          .ytp-volume-slider {
+            display: none !important;
+          }
+          .shared-video-container {
+            position: relative;
+          }
+          .shared-video-container::after {
+            content: "🔇 MUTED";
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      setAudioMuted(true);
+    } catch (error) {
+      console.error('Error forcing audio mute:', error);
     }
   };
 
@@ -182,6 +277,7 @@ function App() {
     }
 
     setIsInitializing(true);
+    setSyncStatus('disconnected');
 
     try {
       // Clear container
@@ -265,12 +361,21 @@ function App() {
       // Event listeners
       api.addEventListener('videoConferenceJoined', (event) => {
         console.log('Joined conference:', event);
+        setSyncStatus('connected');
 
         // Load existing data from localStorage
         const localData = getLocalPlaylist();
         if (localData && localData.playlist) {
           setPlaylist(localData.playlist);
+          setIsPlaylistSynced(true);
         }
+
+        // Start periodic sync
+        setTimeout(() => {
+          startPeriodicSync();
+          // Request current data from other participants
+          broadcastPlaylistUpdate('REQUEST_SYNC', null);
+        }, 2000);
       });
 
       api.addEventListener('participantJoined', (event) => {
@@ -297,6 +402,18 @@ function App() {
         }
       });
 
+      // Shared video events
+      api.addEventListener('sharedVideoStarted', (event) => {
+        console.log('Shared video started:', event);
+        // The MutationObserver handles the mute, but this is a backup trigger.
+        forceAudioMute();
+      });
+
+      api.addEventListener('sharedVideoStopped', (event) => {
+        console.log('Shared video stopped:', event);
+        setAudioMuted(false);
+      });
+
       // Wait for API to be ready
       await new Promise((resolve) => {
         const checkReady = () => {
@@ -315,6 +432,7 @@ function App() {
       console.error('Error during Jitsi initialization:', error);
       setJitsiInitialized(false);
       setJitsiApi(null);
+      setSyncStatus('disconnected');
     } finally {
       setIsInitializing(false);
     }
@@ -322,6 +440,11 @@ function App() {
 
   const cleanupJitsi = () => {
     console.log('=== cleanupJitsi called ===');
+
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
+    }
 
     if (jitsiApi) {
       try {
@@ -336,6 +459,9 @@ function App() {
     setIsVideoSharing(false);
     setCurrentSharedVideo('');
     setParticipantId('');
+    setIsPlaylistSynced(false);
+    setAudioMuted(false);
+    setSyncStatus('disconnected');
 
     if (jitsiContainerRef.current) {
       while (jitsiContainerRef.current.firstChild) {
@@ -371,6 +497,44 @@ function App() {
     }
   }, []);
 
+  // Use a MutationObserver to ensure videos are muted as soon as they appear in the DOM
+  useEffect(() => {
+    if (!jitsiContainerRef.current) return;
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+          mutation.addedNodes.forEach((node) => {
+            // Check for iframes, specifically from youtube.com
+            if (node.tagName === 'IFRAME' && node.src.includes('youtube.com')) {
+              console.log('MutationObserver detected YouTube iframe. Forcing mute...');
+              // Force mute the iframe and set its volume to 0
+              node.muted = true;
+              try {
+                if (node.contentWindow) {
+                  node.contentWindow.document.body.muted = true;
+                  node.contentWindow.document.body.volume = 0;
+                }
+              } catch (e) {
+                console.error('Could not access iframe content window for muting:', e);
+              }
+              setAudioMuted(true);
+            }
+          });
+        }
+      });
+    });
+
+    observer.observe(jitsiContainerRef.current, {
+      childList: true,
+      subtree: true
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [jitsiContainerRef]);
+
   const toggleMap = () => {
     setShowMap(!showMap);
     if (showPlaylist) {
@@ -382,8 +546,11 @@ function App() {
     if (jitsiApi && videoUrl) {
       const videoId = extractYouTubeVideoId(videoUrl);
       if (videoId) {
+        // Ensure the URL passed to Jitsi always has the mute parameter
+        const fullUrl = `https://www.youtube.com/embed/${videoId}`;
+        const mutedUrl = fullUrl + (fullUrl.includes('?') ? '&' : '?') + 'mute=1&autoplay=1';
         try {
-          jitsiApi.executeCommand('startShareVideo', videoUrl);
+          jitsiApi.executeCommand('startShareVideo', mutedUrl);
           setIsVideoSharing(true);
           setCurrentSharedVideo(videoUrl);
           setVideoUrl('');
@@ -407,6 +574,7 @@ function App() {
         jitsiApi.executeCommand('stopShareVideo');
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
+        setAudioMuted(false);
       } catch (error) {
         console.error('Error stopping video:', error);
       }
@@ -439,30 +607,31 @@ function App() {
 
         // Broadcast to all participants
         broadcastPlaylistUpdate('ADD', newVideo);
+        setIsPlaylistSynced(true);
       } catch (error) {
-        console.error('Error adding video to playlist:', error);
-        const newVideo = {
-          id: Date.now() + Math.random(),
-          url: videoUrl,
-          videoId: videoId,
-          title: `Video ${playlist.length + 1}`,
-          addedAt: new Date().toLocaleString(),
-          addedBy: participantId || 'Unknown',
-        };
-        setPlaylist((prev) => {
-          const newPlaylist = [...prev, newVideo];
-          storePlaylistLocally(newPlaylist);
-          return newPlaylist;
-        });
-        broadcastPlaylistUpdate('ADD', newVideo);
-        setVideoUrl('');
-      } finally {
-        setIsLoadingVideoTitle(false);
-      }
-    } else {
-      alert('Please enter a valid YouTube URL');
+      console.error('Error adding video to playlist:', error);
+      const newVideo = {
+        id: Date.now() + Math.random(),
+        url: videoUrl,
+        videoId: videoId,
+        title: `Video ${playlist.length + 1}`,
+        addedAt: new Date().toLocaleString(),
+        addedBy: participantId || 'Unknown',
+      };
+      setPlaylist((prev) => {
+        const newPlaylist = [...prev, newVideo];
+        storePlaylistLocally(newPlaylist);
+        return newPlaylist;
+      });
+      broadcastPlaylistUpdate('ADD', newVideo);
+      setVideoUrl('');
+    } finally {
+      setIsLoadingVideoTitle(false);
     }
-  };
+  } else {
+    alert('Please enter a valid YouTube URL');
+  }
+};
 
   const removeFromPlaylist = (id) => {
     setPlaylist((prev) => {
@@ -476,9 +645,16 @@ function App() {
   const shareFromPlaylist = (url) => {
     if (jitsiApi) {
       try {
-        jitsiApi.executeCommand('startShareVideo', url);
-        setIsVideoSharing(true);
-        setCurrentSharedVideo(url);
+        const videoId = extractYouTubeVideoId(url);
+        if (videoId) {
+          const fullUrl = `https://www.youtube.com/embed/${videoId}`;
+          const mutedUrl = fullUrl + (fullUrl.includes('?') ? '&' : '?') + 'mute=1&autoplay=1';
+          jitsiApi.executeCommand('startShareVideo', mutedUrl);
+          setIsVideoSharing(true);
+          setCurrentSharedVideo(url);
+        } else {
+          alert('Could not extract video ID from URL');
+        }
       } catch (error) {
         console.error('Error sharing video from playlist:', error);
         alert('Failed to share video. Please make sure you have joined the meeting.');
@@ -518,12 +694,35 @@ function App() {
     setShowJwtModal(!showJwtModal);
   };
 
+  const getSyncStatusIcon = () => {
+    switch (syncStatus) {
+      case 'connected':
+        return <Wifi className="w-4 h-4 text-green-400" />;
+      case 'syncing':
+        return <RefreshCw className="w-4 h-4 text-yellow-400 animate-spin" />;
+      default:
+        return <WifiOff className="w-4 h-4 text-red-400" />;
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
       <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-white text-xl font-semibold">Lenskart Video Conference</h1>
+          <h1 className="text-white text-xl font-semibold">NSO Team Meeting</h1>
+          <div className="flex items-center gap-3">
+            {getSyncStatusIcon()}
+            <span className="text-sm text-gray-300">
+              {syncStatus === 'connected' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Offline'}
+            </span>
+            {audioMuted && (
+              <div className="flex items-center gap-1 text-red-400 text-sm">
+                <VolumeX className="w-4 h-4" />
+                <span>Muted</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 items-center">
           {/* Direct Video Share Input */}
@@ -656,6 +855,12 @@ function App() {
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-white text-lg font-semibold">Team Video Playlist</h2>
+                  <div className="flex items-center gap-2 text-sm">
+                    {getSyncStatusIcon()}
+                    <span className="text-gray-300">
+                      {syncStatus === 'connected' ? 'Live Sync' : syncStatus === 'syncing' ? 'Syncing...' : 'Offline'}
+                    </span>
+                  </div>
                 </div>
                 {playlist.length === 0 ? (
                   <div className="text-gray-400 text-center py-8">
@@ -674,27 +879,29 @@ function App() {
                             <p className="text-gray-400 text-xs truncate">{video.url}</p>
                             <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
                               <span>Added: {video.addedAt}</span>
-                              {video.addedBy && <span>• By: {video.addedBy.substring(0, 15)}...</span>}
+                              {video.addedBy && <span>• By: {video.addedBy.substring(0, 20)}...</span>}
                             </div>
                           </div>
-                          <div className="flex-shrink-0 flex items-center gap-2 ml-4">
+                          <div className="flex gap-2 ml-3 flex-shrink-0">
                             <Button
                               onClick={() => shareFromPlaylist(video.url)}
-                              variant="ghost"
+                              variant="default"
                               size="sm"
-                              title="Share this video now"
-                              disabled={isInitializing}
+                              className="bg-green-600 hover:bg-green-700"
+                              disabled={isVideoSharing || isInitializing}
+                              title="Share this video (auto-muted)"
                             >
-                              <Play className="w-4 h-4 text-green-400" />
+                              <Play className="w-4 h-4" />
                             </Button>
                             <Button
                               onClick={() => removeFromPlaylist(video.id)}
-                              variant="ghost"
+                              variant="destructive"
                               size="sm"
-                              title="Remove from playlist"
+                              className="bg-red-600 hover:bg-red-700"
                               disabled={isInitializing}
+                              title="Remove from team playlist"
                             >
-                              <Trash2 className="w-4 h-4 text-red-400" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
                         </div>
@@ -707,38 +914,75 @@ function App() {
           </div>
         )}
 
-        {/* Enhanced Free Map Panel */}
-        {showMap && (
-          <div className="w-1/2 h-full bg-gray-900 border-l border-gray-600 flex flex-col min-h-0">
-            <EnhancedFreeMap />
+        {/* Map Container */}
+        {showMap && !showPlaylist && (
+          <div className="w-1/2 h-full bg-white flex flex-col min-h-0">
+            <div className="h-full flex-1 min-h-0">
+              <EnhancedFreeMap />
+            </div>
           </div>
         )}
       </div>
 
       {/* JWT Modal */}
       {showJwtModal && (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md border border-gray-700">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-96 max-w-90vw">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-white text-xl font-semibold">Enter JWT Token</h2>
-              <Button onClick={toggleJwtModal} variant="ghost" size="sm">
-                <X className="w-5 h-5 text-gray-400" />
+              <h2 className="text-white text-lg font-semibold flex items-center gap-2">
+                <Key className="w-5 h-5" />
+                JWT Configuration
+              </h2>
+              <Button onClick={toggleJwtModal} variant="ghost" size="sm" className="text-white hover:text-white">
+                <X className="w-4 h-4" />
               </Button>
             </div>
-            <p className="text-sm text-gray-400 mb-4">
-              Enter your Jitsi as a Service (JaaS) JSON Web Token to access premium features.
-            </p>
-            <input
-              type="password"
-              placeholder="Paste your JWT token here..."
-              value={jwtToken}
-              onChange={(e) => setJwtToken(e.target.value)}
-              className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-500 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
-            />
-            <div className="mt-4 flex justify-end">
-              <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
-                Apply JWT and Refresh
-              </Button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">JWT Token (for premium features like recording)</label>
+                <textarea
+                  value={jwtToken}
+                  onChange={(e) => setJwtToken(e.target.value)}
+                  placeholder="Paste your JWT token here..."
+                  className="w-full px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none resize-none"
+                  rows={4}
+                />
+              </div>
+              <div className="text-gray-400 text-xs">
+                <p>• JWT enables premium features like recording, live streaming, and outbound calls</p>
+                <p>• Get your JWT from your Jitsi as a Service dashboard</p>
+                <p>• Leave empty to use basic features only</p>
+                <p>• Meeting will restart when JWT is applied</p>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  onClick={toggleJwtModal}
+                  variant="outline"
+                  className="bg-gray-700 text-white border-gray-600 hover:bg-gray-600"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleJwtSubmit}
+                  variant="default"
+                  className="bg-orange-600 hover:bg-orange-700"
+                  disabled={isInitializing}
+                >
+                  {isInitializing ? 'Applying...' : 'Apply JWT'}
+                </Button>
+              </div>
+              {jwtToken && jwtToken.trim().length > 10 && (
+                <div className="text-green-400 text-sm flex items-center gap-1">
+                  <Key className="w-4 h-4" />
+                  JWT configured - premium features will be enabled
+                </div>
+              )}
+              {jwtToken && jwtToken.trim().length > 0 && jwtToken.trim().length <= 10 && (
+                <div className="text-yellow-400 text-sm flex items-center gap-1">
+                  <Key className="w-4 h-4" />
+                  JWT too short - please enter a valid token
+                </div>
+              )}
             </div>
           </div>
         </div>
