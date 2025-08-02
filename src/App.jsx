@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume, VolumeX, Wifi, WifiOff } from 'lucide-react';
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume, VolumeX, Wifi, WifiOff, Search } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -13,7 +13,6 @@ function App() {
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoSharing, setIsVideoSharing] = useState(false);
   const [currentSharedVideo, setCurrentSharedVideo] = useState('');
-  // Initialize playlist as an empty array, no local storage retrieval on mount
   const [playlist, setPlaylist] = useState([]);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [jwtToken, setJwtToken] = useState('');
@@ -25,6 +24,8 @@ function App() {
   const [isPlaylistSynced, setIsPlaylistSynced] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
   const [syncStatus, setSyncStatus] = useState('disconnected');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [draggedItem, setDraggedItem] = useState(null);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -61,7 +62,6 @@ function App() {
   };
 
   // Get playlist from localStorage
-  // This function is kept for internal sync but won't be used on initial load
   const getLocalPlaylist = () => {
     try {
       const data = localStorage.getItem('jitsi_shared_playlist');
@@ -156,6 +156,10 @@ function App() {
             });
             break;
           case 'FULL_SYNC':
+            setPlaylist(message.data);
+            storePlaylistLocally(message.data);
+            break;
+          case 'REORDER':
             setPlaylist(message.data);
             storePlaylistLocally(message.data);
             break;
@@ -596,8 +600,6 @@ function App() {
           url: videoUrl,
           videoId: videoId,
           title: videoTitle,
-          addedAt: new Date().toLocaleString(),
-          addedBy: participantId || 'Unknown',
         };
 
         setPlaylist((prev) => {
@@ -617,8 +619,6 @@ function App() {
           url: videoUrl,
           videoId: videoId,
           title: `Video ${playlist.length + 1}`,
-          addedAt: new Date().toLocaleString(),
-          addedBy: participantId || 'Unknown',
         };
         setPlaylist((prev) => {
           const newPlaylist = [...prev, newVideo];
@@ -692,6 +692,45 @@ function App() {
     setShowJwtModal(!showJwtModal);
   };
 
+  const handleDragStart = (e, video) => {
+    setDraggedItem(video);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e, targetVideo) => {
+    e.preventDefault();
+    if (!draggedItem || draggedItem.id === targetVideo.id) {
+      return;
+    }
+
+    const oldIndex = playlist.findIndex(item => item.id === draggedItem.id);
+    const newIndex = playlist.findIndex(item => item.id === targetVideo.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newPlaylist = [...playlist];
+    newPlaylist.splice(oldIndex, 1);
+    newPlaylist.splice(newIndex, 0, draggedItem);
+
+    setPlaylist(newPlaylist);
+    storePlaylistLocally(newPlaylist);
+    broadcastPlaylistUpdate('REORDER', newPlaylist);
+    setDraggedItem(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+  };
+
+  const filteredPlaylist = playlist.filter(video =>
+    video.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
@@ -733,7 +772,7 @@ function App() {
                   disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
                 >
                   {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Team Playlist'}
+                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Playlist'}
                 </Button>
               </>
             ) : (
@@ -816,57 +855,69 @@ function App() {
         {/* Team Playlist Panel */}
         {showPlaylist && (
           <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-white text-lg font-semibold">Video Playlist</h2>
+              </div>
+              <div className="relative mb-4">
+                <input
+                  type="text"
+                  placeholder="Search videos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-10"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white text-lg font-semibold">Team Video Playlist</h2>
+              {filteredPlaylist.length === 0 ? (
+                <div className="text-gray-400 text-center py-8">
+                  <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>No videos found</p>
+                  <p className="text-sm">Add YouTube URLs or try a different search term.</p>
                 </div>
-                {playlist.length === 0 ? (
-                  <div className="text-gray-400 text-center py-8">
-                    <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No videos in team playlist</p>
-                    <p className="text-sm">Add YouTube URLs to build your shared playlist</p>
-                    <p className="text-xs mt-2 text-gray-500">All team members can see and manage this playlist</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {playlist.map((video) => (
-                      <div key={video.id} className="bg-gray-700 rounded-lg p-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
-                            <p className="text-gray-400 text-xs truncate">{video.url}</p>
-                            <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
-                              <span>Added: {video.addedAt}</span>
-                              {video.addedBy && <span>• By: {video.addedBy.substring(0, 15)}...</span>}
-                            </div>
-                          </div>
-                          <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                            <Button
-                              onClick={() => shareFromPlaylist(video.url)}
-                              variant="ghost"
-                              size="sm"
-                              title="Share this video now"
-                              disabled={isInitializing}
-                            >
-                              <Play className="w-4 h-4 text-green-400" />
-                            </Button>
-                            <Button
-                              onClick={() => removeFromPlaylist(video.id)}
-                              variant="ghost"
-                              size="sm"
-                              title="Remove from playlist"
-                              disabled={isInitializing}
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </Button>
-                          </div>
+              ) : (
+                <div className="space-y-3 p-4 pt-0">
+                  {filteredPlaylist.map((video) => (
+                    <div
+                      key={video.id}
+                      className={`bg-gray-700 rounded-lg p-3 cursor-move ${draggedItem?.id === video.id ? 'opacity-50 border-2 border-blue-500' : ''}`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, video)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, video)}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-medium text-sm leading-tight">{video.title}</h3>
+                        </div>
+                        <div className="flex-shrink-0 flex items-center gap-2 ml-4">
+                          <Button
+                            onClick={() => shareFromPlaylist(video.url)}
+                            variant="ghost"
+                            size="sm"
+                            title="Share this video now"
+                            disabled={isInitializing}
+                          >
+                            <Play className="w-4 h-4 text-green-400" />
+                          </Button>
+                          <Button
+                            onClick={() => removeFromPlaylist(video.id)}
+                            variant="ghost"
+                            size="sm"
+                            title="Remove from playlist"
+                            disabled={isInitializing}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400" />
+                          </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
