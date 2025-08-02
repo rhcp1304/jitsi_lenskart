@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
-import LenskartLogo from './logo.png'; // Import the logo
+import LenskartLogo from './trans.png'; // Import the logo
 
 function App() {
   const [showMap, setShowMap] = useState(false);
