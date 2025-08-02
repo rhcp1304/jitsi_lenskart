@@ -232,13 +232,13 @@ function App() {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
-        roomName: 'vpaas-magic-cookie-de711315bad1401c954f2d4d5ffdcd8f/SampleAppRoutineSleepsWorkReportedly',
+        roomName: 'vpaas-magic-cookie-de711315bad1401c954f2d4d5ffdcd8f/property-approval-meeting',
         parentNode: jitsiContainerRef.current,
         width: '100%',
         height: '100%',
         configOverwrite: {
-          startWithAudioMuted: false,
-          startWithVideoMuted: false,
+          startWithAudioMuted: true,
+          startWithVideoMuted: true,
           prejoinPageEnabled: true,
           enableWelcomePage: false,
           enableClosePage: false,
