@@ -232,7 +232,7 @@ function App() {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
-        roomName: 'vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/SampleAppRoutineSleepsWorkReportedly',
+        roomName: 'vpaas-magic-cookie-de711315bad1401c954f2d4d5ffdcd8f/SampleAppRoutineSleepsWorkReportedly',
         parentNode: jitsiContainerRef.current,
         width: '100%',
         height: '100%',
