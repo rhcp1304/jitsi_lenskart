@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2 } from 'lucide-react';
+import { MapPin, X, Youtube, List, Plus, Play, Pause, Trash2, Key, Loader2 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -21,13 +21,34 @@ function App() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false);
   const [participantId, setParticipantId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [videoPlaybackState, setVideoPlaybackState] = useState(null);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
 
+  // Refs for drag and drop
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
+
+  // Helper function to format time in MM:SS
+  const formatTime = (timeInSeconds) => {
+    if (isNaN(timeInSeconds) || timeInSeconds === null) {
+      return '00:00';
+    }
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
   // Generate unique participant ID
   const generateParticipantId = () => {
-    return `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let id = localStorage.getItem('jitsi_participant_id');
+    if (!id) {
+      id = `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('jitsi_participant_id', id);
+    }
+    return id;
   };
 
   // Function to fetch YouTube video title using oEmbed API
@@ -54,84 +75,63 @@ function App() {
     localStorage.setItem('jitsi_shared_playlist', JSON.stringify(data));
   };
 
-  // Get playlist from localStorage
-  const getLocalPlaylist = () => {
-    try {
-      const data = localStorage.getItem('jitsi_shared_playlist');
-      if (data) {
-        return JSON.parse(data);
+  // Load playlist from local storage
+  const loadPlaylistFromLocalStorage = () => {
+    const storedData = localStorage.getItem('jitsi_shared_playlist');
+    if (storedData) {
+      try {
+        const { playlist } = JSON.parse(storedData);
+        if (playlist && Array.isArray(playlist)) {
+          setPlaylist(playlist);
+          console.log(`Loaded playlist from local storage (${playlist.length} items)`);
+        }
+      } catch (error) {
+        console.error('Failed to parse playlist from local storage:', error);
+        localStorage.removeItem('jitsi_shared_playlist');
       }
-    } catch (error) {
-      console.error('Error reading local playlist:', error);
     }
-    return null;
   };
 
-  // Broadcast playlist using multiple methods for reliability
+  // Broadcast playlist using data channels
   const broadcastPlaylistUpdate = (action, data) => {
     if (!jitsiApi) return;
 
     const message = {
       type: 'PLAYLIST_SYNC',
-      action: action, // 'ADD', 'REMOVE', 'FULL_SYNC'
+      action: action, // 'ADD', 'REMOVE', 'FULL_SYNC', 'REORDER'
       data: data,
       participantId: participantId,
       timestamp: Date.now(),
     };
 
     try {
-      // Method 1: Try data channels
       jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message));
-      console.log('Sent via data channel:', message);
+      console.log('Sent playlist update via data channel:', message);
     } catch (error) {
-      console.log('Data channel failed, trying chat:', error);
+      console.error('Error sending playlist update via data channel:', error);
     }
-
-    try {
-      // Method 2: Use chat as backup
-      const chatMessage = `[PLAYLIST_SYNC] ${JSON.stringify(message)}`;
-      jitsiApi.executeCommand('sendChatMessage', chatMessage);
-      console.log('Sent via chat:', message);
-    } catch (error) {
-      console.log('Chat method also failed:', error);
-    }
-
-    // Method 3: Store locally for periodic sync
-    storePlaylistLocally(action === 'FULL_SYNC' ? data : playlist);
   };
 
   // Handle incoming messages
   const handleIncomingMessage = (messageData) => {
     try {
       let message;
-
-      // Handle both direct data channel and chat messages
-      if (typeof messageData === 'string') {
-        if (messageData.startsWith('[PLAYLIST_SYNC]')) {
-          message = JSON.parse(messageData.replace('[PLAYLIST_SYNC]', '').trim());
-        } else {
-          message = JSON.parse(messageData);
-        }
-      } else if (messageData.data) {
-        if (messageData.data.startsWith('[PLAYLIST_SYNC]')) {
-          message = JSON.parse(messageData.data.replace('[PLAYLIST_SYNC]', '').trim());
-        } else {
-          message = JSON.parse(messageData.data);
-        }
+      if (messageData.data) {
+        message = JSON.parse(messageData.data);
       } else {
         return;
       }
 
-      if (message.participantId === participantId) return; // Ignore own messages
+      if (!message.participantId || message.participantId === participantId) {
+        return; // Ignore own messages
+      }
 
       // Handle playlist updates
       if (message.type === 'PLAYLIST_SYNC') {
-        console.log('Received playlist update:', message);
-
         switch (message.action) {
           case 'ADD':
             setPlaylist((prev) => {
-              const exists = prev.find((video) => video.id === message.data.id);
+              const exists = prev.find((video) => video.url === message.data.url);
               if (!exists) {
                 const newPlaylist = [...prev, message.data];
                 storePlaylistLocally(newPlaylist);
@@ -148,6 +148,7 @@ function App() {
             });
             break;
           case 'FULL_SYNC':
+          case 'REORDER':
             setPlaylist(message.data);
             storePlaylistLocally(message.data);
             break;
@@ -159,37 +160,34 @@ function App() {
   };
 
   const initializeJitsi = async () => {
-    console.log('=== initializeJitsi called ===');
-
     if (isInitializing) {
-      console.log('Already initializing Jitsi, skipping this call.');
       return;
     }
 
     if (jitsiInitialized && jitsiApi) {
-      console.log('Jitsi is already initialized and API exists, skipping re-initialization.');
       return;
     }
 
     if (!window.JitsiMeetExternalAPI) {
-      console.warn('JitsiMeetExternalAPI script not yet loaded. Cannot initialize.');
       return;
     }
 
     if (!jitsiContainerRef.current) {
-      console.error('Jitsi container ref is not available. Cannot initialize.');
       return;
     }
 
     setIsInitializing(true);
 
     try {
-      // Clear container
       if (jitsiContainerRef.current) {
         while (jitsiContainerRef.current.firstChild) {
           jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
         }
       }
+
+      // Clear the playlist on a new meeting
+      setPlaylist([]);
+      localStorage.removeItem('jitsi_shared_playlist');
 
       await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -204,7 +202,6 @@ function App() {
           prejoinPageEnabled: true,
           enableWelcomePage: false,
           enableClosePage: false,
-          // Enhanced configuration for better messaging
           channelLastN: -1,
           enableDataChannels: true,
           enableP2P: true,
@@ -214,33 +211,10 @@ function App() {
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
-            'microphone',
-            'camera',
-            'closedcaptions',
-            'desktop',
-            'fullscreen',
-            'fodeviceselection',
-            'hangup',
-            'profile',
-            'chat',
-            'recording',
-            'livestreaming',
-            'etherpad',
-            'sharedvideo',
-            'settings',
-            'raisehand',
-            'videoquality',
-            'filmstrip',
-            'invite',
-            'feedback',
-            'stats',
-            'shortcuts',
-            'tileview',
-            'videobackgroundblur',
-            'download',
-            'help',
-            'mute-everyone',
-            'security',
+            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen', 'fodeviceselection',
+            'hangup', 'profile', 'chat', 'recording', 'livestreaming', 'etherpad', 'sharedvideo',
+            'settings', 'raisehand', 'videoquality', 'filmstrip', 'invite', 'feedback', 'stats',
+            'shortcuts', 'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone', 'security',
           ],
           SHOW_JITSI_WATERMARK: false,
           SHOW_WATERMARK_FOR_GUESTS: false,
@@ -257,47 +231,43 @@ function App() {
       }
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
-
-      // Generate participant ID
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
-      // Event listeners
       api.addEventListener('videoConferenceJoined', (event) => {
-        console.log('Joined conference:', event);
-
-        // Load existing data from localStorage
-        const localData = getLocalPlaylist();
-        if (localData && localData.playlist) {
-          setPlaylist(localData.playlist);
+        if (playlist.length > 0) {
+          setTimeout(() => {
+            broadcastPlaylistUpdate('FULL_SYNC', playlist);
+          }, 1000);
         }
       });
-
       api.addEventListener('participantJoined', (event) => {
-        console.log('Participant joined:', event);
-        // Send current data to new participant
         setTimeout(() => {
           if (playlist.length > 0) {
             broadcastPlaylistUpdate('FULL_SYNC', playlist);
           }
         }, 1000);
       });
-
-      // Listen for data channel messages
       api.addEventListener('endpointTextMessageReceived', (event) => {
-        console.log('Received endpoint message:', event);
         handleIncomingMessage(event);
       });
-
-      // Listen for chat messages as backup
-      api.addEventListener('incomingMessage', (event) => {
-        console.log('Received chat message:', event);
-        if (event.message && (event.message.includes('[PLAYLIST_SYNC]'))) {
-          handleIncomingMessage(event.message);
+      api.addEventListener('sharedVideo', (event) => {
+        if (event.url) {
+          setVideoPlaybackState({
+            url: event.url,
+            time: event.time,
+            duration: event.duration,
+            state: event.state,
+          });
+          setIsVideoSharing(true);
+          setCurrentSharedVideo(event.url);
+        } else {
+          setVideoPlaybackState(null);
+          setIsVideoSharing(false);
+          setCurrentSharedVideo('');
         }
       });
 
-      // Wait for API to be ready
       await new Promise((resolve) => {
         const checkReady = () => {
           if (api.isAudioMuted !== undefined && api.isVideoMuted !== undefined) {
@@ -321,8 +291,6 @@ function App() {
   };
 
   const cleanupJitsi = () => {
-    console.log('=== cleanupJitsi called ===');
-    
     if (jitsiApi) {
       try {
         jitsiApi.dispose();
@@ -331,7 +299,6 @@ function App() {
       }
       setJitsiApi(null);
     }
-
     setJitsiInitialized(false);
     setIsVideoSharing(false);
     setCurrentSharedVideo('');
@@ -369,7 +336,7 @@ function App() {
         cleanupJitsi();
       };
     }
-  }, []);
+  }, [jwtToken]);
 
   const toggleMap = () => {
     setShowMap(!showMap);
@@ -413,6 +380,12 @@ function App() {
     }
   };
 
+  const playOrPauseVideo = (action) => {
+    if (jitsiApi) {
+      jitsiApi.executeCommand('toggleShareVideo', action);
+    }
+  };
+
   const addToPlaylist = async () => {
     if (videoUrl && extractYouTubeVideoId(videoUrl)) {
       setIsLoadingVideoTitle(true);
@@ -420,25 +393,19 @@ function App() {
 
       try {
         const videoTitle = await fetchYouTubeVideoTitle(videoUrl);
-
         const newVideo = {
-          id: Date.now() + Math.random(), // Ensure unique ID
+          id: Date.now() + Math.random(),
           url: videoUrl,
           videoId: videoId,
           title: videoTitle,
-          addedAt: new Date().toLocaleString(),
-          addedBy: participantId || 'Unknown',
         };
-
         setPlaylist((prev) => {
-          const newPlaylist = [...prev, newVideo];
-          storePlaylistLocally(newPlaylist);
-          return newPlaylist;
+          const updatedPlaylist = [...prev, newVideo];
+          storePlaylistLocally(updatedPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo);
+          return updatedPlaylist;
         });
         setVideoUrl('');
-
-        // Broadcast to all participants
-        broadcastPlaylistUpdate('ADD', newVideo);
       } catch (error) {
         console.error('Error adding video to playlist:', error);
         const newVideo = {
@@ -446,15 +413,13 @@ function App() {
           url: videoUrl,
           videoId: videoId,
           title: `Video ${playlist.length + 1}`,
-          addedAt: new Date().toLocaleString(),
-          addedBy: participantId || 'Unknown',
         };
         setPlaylist((prev) => {
-          const newPlaylist = [...prev, newVideo];
-          storePlaylistLocally(newPlaylist);
-          return newPlaylist;
+          const updatedPlaylist = [...prev, newVideo];
+          storePlaylistLocally(updatedPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo);
+          return updatedPlaylist;
         });
-        broadcastPlaylistUpdate('ADD', newVideo);
         setVideoUrl('');
       } finally {
         setIsLoadingVideoTitle(false);
@@ -468,17 +433,21 @@ function App() {
     setPlaylist((prev) => {
       const newPlaylist = prev.filter((video) => video.id !== id);
       storePlaylistLocally(newPlaylist);
+      broadcastPlaylistUpdate('REMOVE', { id });
       return newPlaylist;
     });
-    broadcastPlaylistUpdate('REMOVE', { id });
   };
 
   const shareFromPlaylist = (url) => {
     if (jitsiApi) {
       try {
-        jitsiApi.executeCommand('startShareVideo', url);
-        setIsVideoSharing(true);
-        setCurrentSharedVideo(url);
+        if (url === currentSharedVideo) {
+          stopVideoSharing();
+        } else {
+          jitsiApi.executeCommand('startShareVideo', url);
+          setIsVideoSharing(true);
+          setCurrentSharedVideo(url);
+        }
       } catch (error) {
         console.error('Error sharing video from playlist:', error);
         alert('Failed to share video. Please make sure you have joined the meeting.');
@@ -505,18 +474,46 @@ function App() {
     setShowJwtModal(false);
     cleanupJitsi();
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await initializeJitsi();
-  };
-
-  const refreshJitsi = async () => {
-    cleanupJitsi();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    await initializeJitsi();
+    initializeJitsi();
   };
 
   const toggleJwtModal = () => {
     setShowJwtModal(!showJwtModal);
   };
+
+  // Handle drag and drop for playlist reordering
+  const handleDragStart = (e, index) => {
+    dragItem.current = index;
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragEnter = (e, index) => {
+    e.preventDefault();
+    dragOverItem.current = index;
+  };
+
+  const handleDragEnd = () => {
+    dragItem.current = null;
+    dragOverItem.current = null;
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setPlaylist((prev) => {
+      const newPlaylist = [...prev];
+      const draggedItem = newPlaylist.splice(dragItem.current, 1)[0];
+      newPlaylist.splice(dragOverItem.current, 0, draggedItem);
+      storePlaylistLocally(newPlaylist);
+      broadcastPlaylistUpdate('REORDER', newPlaylist);
+      return newPlaylist;
+    });
+  };
+
+  const filteredPlaylist = playlist.filter(video =>
+    video.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const currentVideoFromPlaylist = playlist.find(video => video.url === currentSharedVideo);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
@@ -559,7 +556,7 @@ function App() {
                   disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
                 >
                   {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Team Playlist'}
+                  Add to Playlist
                 </Button>
               </>
             ) : (
@@ -585,23 +582,13 @@ function App() {
             JWT
           </Button>
           <Button
-            onClick={refreshJitsi}
-            variant="default"
-            className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700"
-            title="Refresh Jitsi meeting if issues occur"
-            disabled={isInitializing}
-          >
-            {isInitializing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-            {isInitializing ? 'Loading...' : 'Refresh'}
-          </Button>
-          <Button
             onClick={togglePlaylist}
             variant={showPlaylist ? 'destructive' : 'default'}
             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
             disabled={isInitializing}
           >
             <List className="w-4 h-4" />
-            Videos ({playlist.length})
+            Playlist ({playlist.length})
           </Button>
           <Button
             onClick={toggleMap}
@@ -631,7 +618,7 @@ function App() {
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
-                <RefreshCw className="w-8 h-8 animate-spin text-white mx-auto mb-4" />
+                <Loader2 className="w-8 h-8 animate-spin text-white mx-auto mb-4" />
                 <p className="text-white text-lg">Initializing meeting...</p>
                 <p className="text-gray-400 text-sm">Please wait while we set up your conference</p>
               </div>
@@ -647,66 +634,113 @@ function App() {
               display: isInitializing ? 'none' : 'block',
             }}
           />
+
+          {videoPlaybackState && videoPlaybackState.url && (
+            <div className="absolute bottom-4 left-4 right-4 bg-gray-800 bg-opacity-75 p-3 rounded-lg flex items-center space-x-3">
+              <div className="flex-grow">
+                <div className="flex items-center justify-between text-sm text-white mb-1">
+                  <span className="font-semibold">{currentVideoFromPlaylist?.title || 'Shared Video'}</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-gray-400">{formatTime(videoPlaybackState.time)}</span>
+                    <div className="w-40 h-1 rounded-full bg-gray-600 overflow-hidden">
+                      <div
+                        className="bg-red-500 h-full"
+                        style={{ width: `${(videoPlaybackState.time / videoPlaybackState.duration) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-400">{formatTime(videoPlaybackState.duration)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Team Playlist Panel */}
+        {/* Playlist Panel */}
         {showPlaylist && (
           <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+            <div className="p-4 flex-shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-white text-lg font-semibold">Playlist</h2>
+              </div>
+              <input
+                type="text"
+                placeholder="Search videos by name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
             <div className="flex-1 overflow-y-auto">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white text-lg font-semibold">Team Video Playlist</h2>
+              {filteredPlaylist.length === 0 && playlist.length === 0 ? (
+                <div className="text-gray-400 text-center py-8">
+                  <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>No videos in playlist</p>
+                  <p className="text-sm">Add YouTube URLs to build your shared playlist</p>
                 </div>
-                {playlist.length === 0 ? (
-                  <div className="text-gray-400 text-center py-8">
-                    <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No videos in team playlist</p>
-                    <p className="text-sm">Add YouTube URLs to build your shared playlist</p>
-                    <p className="text-xs mt-2 text-gray-500">All team members can see and manage this playlist</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {playlist.map((video) => (
-                      <div key={video.id} className="bg-gray-700 rounded-lg p-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
-                            <p className="text-gray-400 text-xs truncate">{video.url}</p>
-                            <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
-                              <span>Added: {video.addedAt}</span>
-                              {video.addedBy && <span>• By: {video.addedBy.substring(0, 15)}...</span>}
-                            </div>
-                          </div>
-                          <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                            <Button
-                              onClick={() => shareFromPlaylist(video.url)}
-                              variant="ghost"
-                              size="sm"
-                              title="Share this video now"
-                              disabled={isInitializing}
-                            >
+              ) : filteredPlaylist.length === 0 && playlist.length > 0 ? (
+                <div className="text-gray-400 text-center py-8">
+                  <p>No videos found for your search query.</p>
+                </div>
+              ) : (
+                <div className="p-4 space-y-3">
+                  {filteredPlaylist.map((video, index) => (
+                    <div
+                      key={video.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragEnter={(e) => handleDragEnter(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleDrop}
+                      className="bg-gray-700 rounded-lg p-3 cursor-grab hover:bg-gray-600 transition-colors"
+                      style={{
+                        ...(index === dragOverItem.current && {
+                          border: '2px solid #6366f1',
+                          transform: 'scale(1.02)',
+                        }),
+                        ...(index === dragItem.current && {
+                          opacity: 0.5,
+                        }),
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
+                        </div>
+                        <div className="flex-shrink-0 flex items-center gap-2 ml-4">
+                          <Button
+                            onClick={() => shareFromPlaylist(video.url)}
+                            variant="ghost"
+                            size="sm"
+                            title={video.url === currentSharedVideo ? "Stop this video" : "Share this video now"}
+                            disabled={isInitializing}
+                          >
+                            {video.url === currentSharedVideo ? (
+                              <Pause className="w-4 h-4 text-red-400" />
+                            ) : (
                               <Play className="w-4 h-4 text-green-400" />
-                            </Button>
-                            <Button
-                              onClick={() => removeFromPlaylist(video.id)}
-                              variant="ghost"
-                              size="sm"
-                              title="Remove from playlist"
-                              disabled={isInitializing}
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </Button>
-                          </div>
+                            )}
+                          </Button>
+                          <Button
+                            onClick={() => removeFromPlaylist(video.id)}
+                            variant="ghost"
+                            size="sm"
+                            title="Remove from playlist"
+                            disabled={isInitializing}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400" />
+                          </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
-        
+
         {/* Enhanced Free Map Panel */}
         {showMap && (
           <div className="w-1/2 h-full bg-gray-900 border-l border-gray-600 flex flex-col min-h-0">
@@ -737,7 +771,7 @@ function App() {
             />
             <div className="mt-4 flex justify-end">
               <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
-                Apply JWT and Refresh
+                Apply JWT
               </Button>
             </div>
           </div>
