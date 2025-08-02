@@ -200,22 +200,16 @@ function App() {
 
   // New, aggressive function to mute the shared video
   const muteJitsiSharedVideo = () => {
-    console.log("Attempting to mute shared video...");
     try {
       const jitsiVideoContainer = jitsiContainerRef.current;
       if (!jitsiVideoContainer) return;
 
       const videoIframes = jitsiVideoContainer.querySelectorAll('iframe');
       videoIframes.forEach(iframe => {
-        // Check for YouTube player iframe by looking for 'youtube.com' in the src
         if (iframe.src.includes('youtube.com')) {
-          console.log('Found shared YouTube iframe. Forcing mute...');
-
-          // Method 1: Modify iframe properties directly
           iframe.muted = true;
           iframe.volume = 0;
 
-          // Method 2: Use YouTube Player API via postMessage
           const message = JSON.stringify({ event: 'command', func: 'setVolume', args: [0] });
           iframe.contentWindow.postMessage(message, '*');
 
@@ -223,7 +217,6 @@ function App() {
           iframe.contentWindow.postMessage(messageMute, '*');
 
           setAudioMuted(true);
-          console.log('Forced mute using postMessage and iframe properties.');
         }
       });
 
@@ -232,7 +225,6 @@ function App() {
         if (!element.muted) {
           element.muted = true;
           element.volume = 0;
-          console.log('Forced mute on video element:', element);
         }
       });
 
@@ -251,27 +243,18 @@ function App() {
 
   // Force mute audio for shared videos
   const forceAudioMute = () => {
-    // Clear any existing mute intervals
     stopMutingInterval();
-
-    // Immediately try to mute the video
     muteJitsiSharedVideo();
-
-    // Start a new interval to keep the video muted
-    muteIntervalRef.current = setInterval(muteJitsiSharedVideo, 500); // Check every 500ms
+    muteIntervalRef.current = setInterval(muteJitsiSharedVideo, 500);
     setAudioMuted(true);
   };
 
   const initializeJitsi = async () => {
-    console.log('=== initializeJitsi called ===');
-
     if (isInitializing) {
-      console.log('Already initializing Jitsi, skipping this call.');
       return;
     }
 
     if (jitsiInitialized && jitsiApi) {
-      console.log('Jitsi is already initialized and API exists, skipping re-initialization.');
       return;
     }
 
@@ -289,14 +272,12 @@ function App() {
     setSyncStatus('disconnected');
 
     try {
-      // Clear container
       if (jitsiContainerRef.current) {
         while (jitsiContainerRef.current.firstChild) {
           jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
         }
       }
 
-      // Clear the local playlist and local storage to start a fresh meeting
       setPlaylist([]);
       localStorage.removeItem('jitsi_shared_playlist');
 
@@ -313,7 +294,6 @@ function App() {
           prejoinPageEnabled: true,
           enableWelcomePage: false,
           enableClosePage: false,
-          // Enhanced configuration for better messaging
           channelLastN: -1,
           enableDataChannels: true,
           enableP2P: true,
@@ -367,25 +347,18 @@ function App() {
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
 
-      // Generate participant ID
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
-      // Event listeners
       api.addEventListener('videoConferenceJoined', (event) => {
-        console.log('Joined conference:', event);
         setSyncStatus('connected');
-        // Start periodic sync
         setTimeout(() => {
           startPeriodicSync();
-          // Request current data from other participants
           broadcastPlaylistUpdate('FULL_SYNC', playlist);
         }, 2000);
       });
 
       api.addEventListener('participantJoined', (event) => {
-        console.log('Participant joined:', event);
-        // Send current data to new participant
         setTimeout(() => {
           if (playlist.length > 0) {
             broadcastPlaylistUpdate('FULL_SYNC', playlist);
@@ -393,34 +366,25 @@ function App() {
         }, 1000);
       });
 
-      // Listen for data channel messages
       api.addEventListener('endpointTextMessageReceived', (event) => {
-        console.log('Received endpoint message:', event);
         handleIncomingMessage(event);
       });
 
-      // Listen for chat messages as backup
       api.addEventListener('incomingMessage', (event) => {
-        console.log('Received chat message:', event);
         if (event.message && (event.message.includes('[PLAYLIST_SYNC]'))) {
           handleIncomingMessage(event.message);
         }
       });
 
-      // Shared video events
       api.addEventListener('sharedVideoStarted', (event) => {
-        console.log('Shared video started:', event);
-        // The MutationObserver handles the mute, but this is a backup trigger.
         forceAudioMute();
       });
 
       api.addEventListener('sharedVideoStopped', (event) => {
-        console.log('Shared video stopped:', event);
         stopMutingInterval();
         setAudioMuted(false);
       });
 
-      // Wait for API to be ready
       await new Promise((resolve) => {
         const checkReady = () => {
           if (api.isAudioMuted !== undefined && api.isVideoMuted !== undefined) {
@@ -445,8 +409,6 @@ function App() {
   };
 
   const cleanupJitsi = () => {
-    console.log('=== cleanupJitsi called ===');
-
     stopMutingInterval();
 
     if (syncIntervalRef.current) {
@@ -471,7 +433,6 @@ function App() {
     setAudioMuted(false);
     setSyncStatus('disconnected');
 
-    // Also clear the playlist and local storage when the component unmounts
     setPlaylist([]);
     localStorage.removeItem('jitsi_shared_playlist');
 
@@ -482,7 +443,6 @@ function App() {
     }
   };
 
-  // Function to initialize Jitsi without refreshing
   const initializeJitsiOnLoad = () => {
     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
@@ -510,7 +470,6 @@ function App() {
     };
   }, []);
 
-  // Use a MutationObserver to ensure videos are muted as soon as they appear in the DOM
   useEffect(() => {
     if (!jitsiContainerRef.current) return;
 
@@ -518,10 +477,7 @@ function App() {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList') {
           mutation.addedNodes.forEach((node) => {
-            // Check if the added node is an iframe or contains one
             if (node.tagName === 'IFRAME' || (node.querySelector && node.querySelector('iframe'))) {
-              console.log('MutationObserver detected new iframe. Forcing mute...');
-              // A new iframe has been added, assume it could be the shared video
               forceAudioMute();
             }
           });
@@ -546,25 +502,17 @@ function App() {
     }
   };
 
-  const shareVideoDirectly = async () => {
+  const shareVideoDirectly = () => {
     if (jitsiApi && videoUrl) {
-      const videoId = extractYouTubeVideoId(videoUrl);
-      if (videoId) {
-        // Pass the video ID directly and let Jitsi handle the embed URL
-        const mutedUrl = `youtube.com${videoId}?mute=1&autoplay=1`;
-        try {
-          jitsiApi.executeCommand('startShareVideo', mutedUrl);
-          setIsVideoSharing(true);
-          setCurrentSharedVideo(videoUrl);
-          setVideoUrl('');
-          // Aggressively mute right after starting
-          forceAudioMute();
-        } catch (error) {
-          console.error('Error sharing video:', error);
-          alert('Failed to share video. Please make sure you have joined the meeting.');
-        }
-      } else {
-        alert('Please enter a valid YouTube URL');
+      try {
+        jitsiApi.executeCommand('startShareVideo', videoUrl);
+        setIsVideoSharing(true);
+        setCurrentSharedVideo(videoUrl);
+        setVideoUrl('');
+        forceAudioMute();
+      } catch (error) {
+        console.error('Error sharing video:', error);
+        alert('Failed to share video. Please make sure you have joined the meeting.');
       }
     } else if (!jitsiApi) {
       alert('Please wait for the meeting to load and join first');
@@ -596,7 +544,7 @@ function App() {
         const videoTitle = await fetchYouTubeVideoTitle(videoUrl);
 
         const newVideo = {
-          id: Date.now() + Math.random(), // Ensure unique ID
+          id: Date.now() + Math.random(),
           url: videoUrl,
           videoId: videoId,
           title: videoTitle,
@@ -609,7 +557,6 @@ function App() {
         });
         setVideoUrl('');
 
-        // Broadcast to all participants
         broadcastPlaylistUpdate('ADD', newVideo);
         setIsPlaylistSynced(true);
       } catch (error) {
@@ -649,12 +596,9 @@ function App() {
       try {
         const videoId = extractYouTubeVideoId(url);
         if (videoId) {
-          // Pass the video ID directly and let Jitsi handle the embed URL
-          const mutedUrl = `youtube.com${videoId}?mute=1&autoplay=1`;
-          jitsiApi.executeCommand('startShareVideo', mutedUrl);
+          jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
-          // Aggressively mute right after starting
           forceAudioMute();
         } else {
           alert('Could not extract video ID from URL');
