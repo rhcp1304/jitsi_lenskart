@@ -43,7 +43,12 @@ function App() {
 
   // Generate unique participant ID
   const generateParticipantId = () => {
-    return `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let id = localStorage.getItem('jitsi_participant_id');
+    if (!id) {
+      id = `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('jitsi_participant_id', id);
+    }
+    return id;
   };
 
   // Function to fetch YouTube video title using oEmbed API
@@ -70,8 +75,26 @@ function App() {
     localStorage.setItem('jitsi_shared_playlist', JSON.stringify(data));
   };
 
+  // Load playlist from local storage
+  const loadPlaylistFromLocalStorage = useCallback(() => {
+    const storedData = localStorage.getItem('jitsi_shared_playlist');
+    if (storedData) {
+      try {
+        const { playlist, timestamp } = JSON.parse(storedData);
+        // We can add logic to only load if it's recent
+        if (playlist && Array.isArray(playlist)) {
+          setPlaylist(playlist);
+          console.log(`Loaded playlist from local storage (${playlist.length} items)`);
+        }
+      } catch (error) {
+        console.error('Failed to parse playlist from local storage:', error);
+        localStorage.removeItem('jitsi_shared_playlist');
+      }
+    }
+  }, []);
+
   // Broadcast playlist using data channels
-  const broadcastPlaylistUpdate = (action, data) => {
+  const broadcastPlaylistUpdate = useCallback((action, data) => {
     if (!jitsiApi) return;
 
     const message = {
@@ -89,12 +112,10 @@ function App() {
     } catch (error) {
       console.error('Error sending playlist update via data channel:', error);
     }
-
-    storePlaylistLocally(action === 'FULL_SYNC' || action === 'REORDER' ? data : playlist);
-  };
+  }, [jitsiApi, participantId]);
 
   // Handle incoming messages
-  const handleIncomingMessage = (messageData) => {
+  const handleIncomingMessage = useCallback((messageData) => {
     try {
       let message;
       if (messageData.data) {
@@ -103,7 +124,10 @@ function App() {
         return;
       }
 
-      if (message.participantId === participantId) return; // Ignore own messages
+      if (!message.participantId || message.participantId === participantId) {
+        console.log('Ignoring own message or message without participantId:', message);
+        return; // Ignore own messages
+      }
 
       // Handle playlist updates
       if (message.type === 'PLAYLIST_SYNC') {
@@ -112,7 +136,7 @@ function App() {
         switch (message.action) {
           case 'ADD':
             setPlaylist((prev) => {
-              const exists = prev.find((video) => video.id === message.data.id);
+              const exists = prev.find((video) => video.url === message.data.url);
               if (!exists) {
                 const newPlaylist = [...prev, message.data];
                 storePlaylistLocally(newPlaylist);
@@ -138,9 +162,9 @@ function App() {
     } catch (error) {
       console.error('Error handling incoming message:', error);
     }
-  };
+  }, [participantId, setPlaylist]);
 
-  const initializeJitsi = async () => {
+  const initializeJitsi = useCallback(async () => {
     console.log('=== initializeJitsi called ===');
 
     if (isInitializing) {
@@ -173,9 +197,8 @@ function App() {
         }
       }
 
-      // Clear playlist and local storage on new meeting initialization
-      setPlaylist([]);
-      localStorage.removeItem('jitsi_shared_playlist');
+      // Load playlist from local storage on new meeting initialization
+      loadPlaylistFromLocalStorage();
 
       await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -244,7 +267,7 @@ function App() {
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
 
-      // Generate participant ID
+      // Generate or retrieve participant ID
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
@@ -255,7 +278,7 @@ function App() {
 
       api.addEventListener('participantJoined', (event) => {
         console.log('Participant joined:', event);
-        // Send current data to new participant
+        // Send current data to new participant to sync the playlist
         setTimeout(() => {
           if (playlist.length > 0) {
             broadcastPlaylistUpdate('FULL_SYNC', playlist);
@@ -265,7 +288,6 @@ function App() {
 
       // Listen for data channel messages
       api.addEventListener('endpointTextMessageReceived', (event) => {
-        console.log('Received endpoint message:', event);
         handleIncomingMessage(event);
       });
 
@@ -310,7 +332,7 @@ function App() {
     } finally {
       setIsInitializing(false);
     }
-  };
+  }, [isInitializing, jitsiInitialized, jitsiApi, jwtToken, playlist, broadcastPlaylistUpdate, handleIncomingMessage, loadPlaylistFromLocalStorage]);
 
   const cleanupJitsi = () => {
     console.log('=== cleanupJitsi called ===');
@@ -361,7 +383,7 @@ function App() {
         cleanupJitsi();
       };
     }
-  }, []);
+  }, [initializeJitsi]);
 
   const toggleMap = () => {
     setShowMap(!showMap);
@@ -375,7 +397,6 @@ function App() {
       const videoId = extractYouTubeVideoId(videoUrl);
       if (videoId) {
         try {
-          // No need to stop first, Jitsi handles it
           jitsiApi.executeCommand('startShareVideo', videoUrl);
           setIsVideoSharing(true);
           setCurrentSharedVideo(videoUrl);
@@ -419,7 +440,6 @@ function App() {
 
       try {
         const videoTitle = await fetchYouTubeVideoTitle(videoUrl);
-
         const newVideo = {
           id: Date.now() + Math.random(), // Ensure unique ID
           url: videoUrl,
@@ -430,12 +450,10 @@ function App() {
         setPlaylist((prev) => {
           const newPlaylist = [...prev, newVideo];
           storePlaylistLocally(newPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo); // Broadcast after local state update
           return newPlaylist;
         });
         setVideoUrl('');
-
-        // Broadcast to all participants
-        broadcastPlaylistUpdate('ADD', newVideo);
       } catch (error) {
         console.error('Error adding video to playlist:', error);
         const newVideo = {
@@ -447,9 +465,9 @@ function App() {
         setPlaylist((prev) => {
           const newPlaylist = [...prev, newVideo];
           storePlaylistLocally(newPlaylist);
+          broadcastPlaylistUpdate('ADD', newVideo);
           return newPlaylist;
         });
-        broadcastPlaylistUpdate('ADD', newVideo);
         setVideoUrl('');
       } finally {
         setIsLoadingVideoTitle(false);
@@ -463,19 +481,17 @@ function App() {
     setPlaylist((prev) => {
       const newPlaylist = prev.filter((video) => video.id !== id);
       storePlaylistLocally(newPlaylist);
+      broadcastPlaylistUpdate('REMOVE', { id }); // Broadcast after local state update
       return newPlaylist;
     });
-    broadcastPlaylistUpdate('REMOVE', { id });
   };
 
   const shareFromPlaylist = (url) => {
     if (jitsiApi) {
       try {
-        // If the clicked video is the one currently playing, stop it.
         if (url === currentSharedVideo) {
           stopVideoSharing();
         } else {
-          // Otherwise, start sharing the new video.
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
