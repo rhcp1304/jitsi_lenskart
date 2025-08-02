@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
-import LenskartLogo from './trans.png'; // Import the logo
+import LenskartLogo from './logo.png'; // Import the logo
 
 function App() {
   const [showMap, setShowMap] = useState(false);
@@ -541,7 +541,7 @@ function App() {
       <header className="bg-gray-900 p-4 flex flex-col md:flex-row justify-between items-center flex-shrink-0 shadow-lg">
         {/* Title and Controls */}
         <div className="flex items-center justify-between w-full md:w-auto mb-4 md:mb-0">
-          <img src={LenskartLogo} alt="Lenskart Logo" className="h-12 w-24 bg-black-100" />
+          <img src={LenskartLogo} alt="Lenskart Logo" className="h-12 w-24" />
           <div className="flex items-center md:hidden gap-2">
             <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title="Configure JWT">
               <Key className="w-5 h-5" />
