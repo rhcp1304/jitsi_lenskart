@@ -6,10 +6,8 @@ import {
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
-import * as pdfjsLib from 'pdfjs-dist';
 
 function App() {
-  // CORRECT: All state and ref hooks must be inside the component function
   const [showMap, setShowMap] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoSharing, setIsVideoSharing] = useState(false);
@@ -27,13 +25,6 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
-
-  // Correctly placed new state and ref for slide sharing
-  const [isSharingSlides, setIsSharingSlides] = useState(false);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [slideImages, setSlideImages] = useState([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef(null);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -102,86 +93,6 @@ function App() {
     setSyncStatus('syncing');
   };
 
-  const handleNextSlide = () => {
-    if (currentSlide < slideImages.length - 1) {
-      const nextSlide = currentSlide + 1;
-      setCurrentSlide(nextSlide);
-      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
-        type: 'SLIDE_SYNC',
-        action: 'NEXT_SLIDE',
-        slide: nextSlide,
-        participantId: participantId,
-      }));
-    }
-  };
-
-  const handlePreviousSlide = () => {
-    if (currentSlide > 0) {
-      const previousSlide = currentSlide - 1;
-      setCurrentSlide(previousSlide);
-      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
-        type: 'SLIDE_SYNC',
-        action: 'PREV_SLIDE',
-        slide: previousSlide,
-        participantId: participantId,
-      }));
-    }
-  };
-
-  const handleUploadClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch('YOUR_SERVER_UPLOAD_ENDPOINT', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSlideImages(data.slideUrls);
-        setCurrentSlide(0);
-        setIsSharingSlides(true);
-
-        jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
-          type: 'SLIDE_SYNC',
-          action: 'START_SHARE',
-          slides: data.slideUrls,
-          slide: 0,
-          participantId: participantId,
-        }));
-      } else {
-        alert('Failed to upload and convert file.');
-      }
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('An error occurred during upload.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const stopSlideSharing = () => {
-    setIsSharingSlides(false);
-    setCurrentSlide(0);
-    setSlideImages([]);
-    jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
-      type: 'SLIDE_SYNC',
-      action: 'STOP_SHARE',
-      participantId: participantId,
-    }));
-  };
-
   const handleIncomingMessage = (messageData) => {
     try {
       let message;
@@ -233,19 +144,6 @@ function App() {
         }
         setIsPlaylistSynced(true);
         setSyncStatus('connected');
-      }
-
-      if (message.type === 'SLIDE_SYNC') {
-        if (message.action === 'START_SHARE') {
-          setSlideImages(message.slides);
-          setCurrentSlide(message.slide);
-          setIsSharingSlides(true);
-        } else if (message.action === 'NEXT_SLIDE' || message.action === 'PREV_SLIDE') {
-          setCurrentSlide(message.slide);
-        } else if (message.action === 'STOP_SHARE') {
-          setIsSharingSlides(false);
-          setSlideImages([]);
-        }
       }
 
     } catch (error) {
@@ -496,7 +394,6 @@ function App() {
   const toggleMap = () => {
     setShowMap(!showMap);
     if (showPlaylist) setShowPlaylist(false);
-    if (isSharingSlides) setIsSharingSlides(false);
   };
   const shareVideoDirectly = () => {
     if (jitsiApi && videoUrl) {
@@ -598,7 +495,6 @@ function App() {
   const togglePlaylist = () => {
     setShowPlaylist(!showPlaylist);
     if (showMap) setShowMap(false);
-    if (isSharingSlides) setIsSharingSlides(false);
   };
 
   const extractYouTubeVideoId = (url) => {
@@ -639,11 +535,6 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const toggleSlideSharing = () => {
-    setIsSharingSlides(!isSharingSlides);
-    if (showMap) setShowMap(false);
-    if (showPlaylist) setShowPlaylist(false);
-  };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
@@ -688,11 +579,7 @@ function App() {
 
           {/* Other Buttons */}
           <div className="flex flex-wrap gap-2 mt-2 md:mt-0 w-full md:w-auto justify-center md:justify-start">
-            <Button onClick={toggleSlideSharing} variant={isSharingSlides ? 'destructive' : 'default'} className={`flex-1 md:flex-auto flex items-center gap-2 ${isSharingSlides ? 'bg-red-600 hover:bg-red-700' : 'bg-cyan-600 hover:bg-cyan-700'}`} disabled={isInitializing || isUploading}>
-              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : isSharingSlides ? <X className="w-4 h-4" /> : <List className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isUploading ? 'Uploading...' : isSharingSlides ? 'Stop Slides' : 'Share PPT'}</span>
-            </Button>
-            <input type="file" accept=".ppt,.pptx" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+
             <Button onClick={toggleJwtModal} variant="default" className="flex-1 md:flex-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700" title="Configure JWT for premium features" disabled={isInitializing}>
               <Key className="w-4 h-4" />
               <span className="hidden sm:inline">JWT</span>
@@ -721,7 +608,7 @@ function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
         {/* Jitsi Container */}
-        <div className={`${showMap || showPlaylist || isSharingSlides ? 'w-full md:w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
+        <div className={`${showMap || showPlaylist ? 'w-full md:w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
@@ -741,34 +628,6 @@ function App() {
             }}
           />
         </div>
-
-        {/* Slide Sharing Panel */}
-        {isSharingSlides && (
-          <div className="w-full md:w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
-            <div className="p-4 flex-shrink-0 flex items-center justify-between">
-              <h2 className="text-white text-lg font-semibold">
-                Slide Presentation ({currentSlide + 1} of {slideImages.length})
-              </h2>
-              <div className="flex gap-2">
-                <Button onClick={handlePreviousSlide} disabled={currentSlide === 0}>
-                  Previous
-                </Button>
-                <Button onClick={handleNextSlide} disabled={currentSlide === slideImages.length - 1}>
-                  Next
-                </Button>
-              </div>
-            </div>
-            <div className="flex-1 p-4 flex items-center justify-center overflow-auto">
-              {slideImages.length > 0 && (
-                <img
-                  src={slideImages[currentSlide]}
-                  alt={`Slide ${currentSlide + 1}`}
-                  className="max-w-full max-h-full object-contain shadow-lg"
-                />
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Team Playlist Panel */}
         {showPlaylist && (
