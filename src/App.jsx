@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume, VolumeX, Wifi, WifiOff, Search } from 'lucide-react';
+import {
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume,
+  VolumeX, Wifi, WifiOff, Search
+} from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
 
-
 function App() {
+  // CORRECT: All state and ref hooks must be inside the component function
   const [showMap, setShowMap] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoSharing, setIsVideoSharing] = useState(false);
@@ -25,17 +28,22 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
 
+  // Correctly placed new state and ref for slide sharing
+  const [isSharingSlides, setIsSharingSlides] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [slideImages, setSlideImages] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
   const muteIntervalRef = useRef(null);
 
-  // Generate unique participant ID
   const generateParticipantId = () => {
     return `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
 
-  // Function to fetch YouTube video title using oEmbed API
   const fetchYouTubeVideoTitle = async (videoUrl) => {
     try {
       const response = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(videoUrl)}`);
@@ -49,7 +57,6 @@ function App() {
     return 'Unknown Video';
   };
 
-  // Store playlist in localStorage with timestamp
   const storePlaylistLocally = (playlistData) => {
     const data = {
       playlist: playlistData,
@@ -59,7 +66,6 @@ function App() {
     localStorage.setItem('jitsi_shared_playlist', JSON.stringify(data));
   };
 
-  // Get playlist from localStorage
   const getLocalPlaylist = () => {
     try {
       const data = localStorage.getItem('jitsi_shared_playlist');
@@ -72,46 +78,113 @@ function App() {
     return null;
   };
 
-  // Broadcast playlist using multiple methods for reliability
   const broadcastPlaylistUpdate = (action, data) => {
     if (!jitsiApi) return;
-
     const message = {
       type: 'PLAYLIST_SYNC',
-      action: action, // 'ADD', 'REMOVE', 'FULL_SYNC'
+      action: action,
       data: data,
       participantId: participantId,
       timestamp: Date.now(),
     };
-
     try {
-      // Method 1: Try data channels
       jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message));
-      console.log('Sent via data channel:', message);
     } catch (error) {
       console.log('Data channel failed, trying chat:', error);
     }
-
     try {
-      // Method 2: Use chat as backup
       const chatMessage = `[PLAYLIST_SYNC] ${JSON.stringify(message)}`;
       jitsiApi.executeCommand('sendChatMessage', chatMessage);
-      console.log('Sent via chat:', message);
     } catch (error) {
       console.log('Chat method also failed:', error);
     }
-
-    // Method 3: Store locally for periodic sync
     storePlaylistLocally(action === 'FULL_SYNC' ? data : playlist);
     setSyncStatus('syncing');
   };
 
-  // Handle incoming messages
+  const handleNextSlide = () => {
+    if (currentSlide < slideImages.length - 1) {
+      const nextSlide = currentSlide + 1;
+      setCurrentSlide(nextSlide);
+      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
+        type: 'SLIDE_SYNC',
+        action: 'NEXT_SLIDE',
+        slide: nextSlide,
+        participantId: participantId,
+      }));
+    }
+  };
+
+  const handlePreviousSlide = () => {
+    if (currentSlide > 0) {
+      const previousSlide = currentSlide - 1;
+      setCurrentSlide(previousSlide);
+      jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
+        type: 'SLIDE_SYNC',
+        action: 'PREV_SLIDE',
+        slide: previousSlide,
+        participantId: participantId,
+      }));
+    }
+  };
+
+  const handleUploadClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('YOUR_SERVER_UPLOAD_ENDPOINT', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSlideImages(data.slideUrls);
+        setCurrentSlide(0);
+        setIsSharingSlides(true);
+
+        jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
+          type: 'SLIDE_SYNC',
+          action: 'START_SHARE',
+          slides: data.slideUrls,
+          slide: 0,
+          participantId: participantId,
+        }));
+      } else {
+        alert('Failed to upload and convert file.');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('An error occurred during upload.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const stopSlideSharing = () => {
+    setIsSharingSlides(false);
+    setCurrentSlide(0);
+    setSlideImages([]);
+    jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify({
+      type: 'SLIDE_SYNC',
+      action: 'STOP_SHARE',
+      participantId: participantId,
+    }));
+  };
+
   const handleIncomingMessage = (messageData) => {
     try {
       let message;
-
-      // Handle both direct data channel and chat messages
       if (typeof messageData === 'string') {
         if (messageData.startsWith('[PLAYLIST_SYNC]')) {
           message = JSON.parse(messageData.replace('[PLAYLIST_SYNC]', '').trim());
@@ -127,13 +200,9 @@ function App() {
       } else {
         return;
       }
+      if (message.participantId === participantId) return;
 
-      if (message.participantId === participantId) return; // Ignore own messages
-
-      // Handle playlist updates
       if (message.type === 'PLAYLIST_SYNC') {
-        console.log('Received playlist update:', message);
-
         switch (message.action) {
           case 'ADD':
             setPlaylist((prev) => {
@@ -165,59 +234,61 @@ function App() {
         setIsPlaylistSynced(true);
         setSyncStatus('connected');
       }
+
+      if (message.type === 'SLIDE_SYNC') {
+        if (message.action === 'START_SHARE') {
+          setSlideImages(message.slides);
+          setCurrentSlide(message.slide);
+          setIsSharingSlides(true);
+        } else if (message.action === 'NEXT_SLIDE' || message.action === 'PREV_SLIDE') {
+          setCurrentSlide(message.slide);
+        } else if (message.action === 'STOP_SHARE') {
+          setIsSharingSlides(false);
+          setSlideImages([]);
+        }
+      }
+
     } catch (error) {
       console.error('Error handling incoming message:', error);
     }
   };
 
-  // Periodic sync check
   const startPeriodicSync = () => {
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
     }
-
     syncIntervalRef.current = setInterval(() => {
       if (jitsiApi && participantId) {
-        // Request full sync from other participants
         broadcastPlaylistUpdate('REQUEST_SYNC', null);
-
-        // Check local storage for updates from other tabs/windows
         const localData = getLocalPlaylist();
         if (localData && localData.participantId !== participantId) {
           const timeDiff = Date.now() - localData.timestamp;
           if (timeDiff < 30000) {
-            // If updated within last 30 seconds
             setPlaylist(localData.playlist);
             setIsPlaylistSynced(true);
             setSyncStatus('connected');
           }
         }
       }
-    }, 5000); // Check every 5 seconds
+    }, 5000);
   };
 
-  // New, aggressive function to mute the shared video
   const muteJitsiSharedVideo = () => {
     try {
       const jitsiVideoContainer = jitsiContainerRef.current;
       if (!jitsiVideoContainer) return;
-
       const videoIframes = jitsiVideoContainer.querySelectorAll('iframe');
       videoIframes.forEach(iframe => {
         if (iframe.src.includes('youtube.com')) {
           iframe.muted = true;
           iframe.volume = 0;
-
           const message = JSON.stringify({ event: 'command', func: 'setVolume', args: [0] });
           iframe.contentWindow.postMessage(message, '*');
-
           const messageMute = JSON.stringify({ event: 'command', func: 'mute' });
           iframe.contentWindow.postMessage(messageMute, '*');
-
           setAudioMuted(true);
         }
       });
-
       const allVideos = jitsiVideoContainer.querySelectorAll('video');
       allVideos.forEach(element => {
         if (!element.muted) {
@@ -225,13 +296,11 @@ function App() {
           element.volume = 0;
         }
       });
-
     } catch (error) {
       console.error('Error muting shared video:', error);
     }
   };
 
-  // Cleanup old interval if a new video starts
   const stopMutingInterval = () => {
     if (muteIntervalRef.current) {
       clearInterval(muteIntervalRef.current);
@@ -239,7 +308,6 @@ function App() {
     }
   };
 
-  // Force mute audio for shared videos
   const forceAudioMute = () => {
     stopMutingInterval();
     muteJitsiSharedVideo();
@@ -248,24 +316,11 @@ function App() {
   };
 
   const initializeJitsi = async () => {
-    if (isInitializing) {
+    if (isInitializing || (jitsiInitialized && jitsiApi)) return;
+    if (!window.JitsiMeetExternalAPI || !jitsiContainerRef.current) {
+      console.warn('JitsiMeetExternalAPI script or container not ready.');
       return;
     }
-
-    if (jitsiInitialized && jitsiApi) {
-      return;
-    }
-
-    if (!window.JitsiMeetExternalAPI) {
-      console.warn('JitsiMeetExternalAPI script not yet loaded. Cannot initialize.');
-      return;
-    }
-
-    if (!jitsiContainerRef.current) {
-      console.error('Jitsi container ref is not available. Cannot initialize.');
-      return;
-    }
-
     setIsInitializing(true);
     setSyncStatus('disconnected');
 
@@ -275,10 +330,8 @@ function App() {
           jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
         }
       }
-
       setPlaylist([]);
       localStorage.removeItem('jitsi_shared_playlist');
-
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
@@ -295,38 +348,14 @@ function App() {
           channelLastN: -1,
           enableDataChannels: true,
           enableP2P: true,
-          p2p: {
-            enabled: true,
-          },
+          p2p: { enabled: true },
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
-            'microphone',
-            'camera',
-            'closedcaptions',
-            'desktop',
-            'fullscreen',
-            'fodeviceselection',
-            'hangup',
-            'profile',
-            'chat',
-            'recording',
-            'livestreaming',
-            'etherpad',
-            'sharedvideo',
-            'settings',
-            'raisehand',
-            'videoquality',
-            'filmstrip',
-            'invite',
-            'feedback',
-            'stats',
-            'shortcuts',
-            'tileview',
-            'videobackgroundblur',
-            'download',
-            'help',
-            'mute-everyone',
+            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen', 'fodeviceselection',
+            'hangup', 'profile', 'chat', 'recording', 'livestreaming', 'etherpad', 'sharedvideo',
+            'settings', 'raisehand', 'videoquality', 'filmstrip', 'invite', 'feedback', 'stats',
+            'shortcuts', 'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
             'security',
           ],
           SHOW_JITSI_WATERMARK: false,
@@ -344,7 +373,6 @@ function App() {
       }
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
-
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
@@ -364,22 +392,17 @@ function App() {
         }, 1000);
       });
 
-      api.addEventListener('endpointTextMessageReceived', (event) => {
-        handleIncomingMessage(event);
-      });
-
+      api.addEventListener('endpointTextMessageReceived', (event) => handleIncomingMessage(event));
       api.addEventListener('incomingMessage', (event) => {
-        if (event.message && (event.message.includes('[PLAYLIST_SYNC]'))) {
+        if (event.message && event.message.includes('[PLAYLIST_SYNC]')) {
           handleIncomingMessage(event.message);
         }
       });
-
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
         forceAudioMute();
       });
-
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
@@ -389,11 +412,8 @@ function App() {
 
       await new Promise((resolve) => {
         const checkReady = () => {
-          if (api.isAudioMuted !== undefined && api.isVideoMuted !== undefined) {
-            resolve();
-          } else {
-            setTimeout(checkReady, 100);
-          }
+          if (api.isAudioMuted !== undefined) resolve();
+          else setTimeout(checkReady, 100);
         };
         checkReady();
       });
@@ -412,21 +432,14 @@ function App() {
 
   const cleanupJitsi = () => {
     stopMutingInterval();
-
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
-
     if (jitsiApi) {
-      try {
-        jitsiApi.dispose();
-      } catch (error) {
-        console.error('Error disposing Jitsi API:', error);
-      }
+      try { jitsiApi.dispose(); } catch (error) { console.error('Error disposing Jitsi API:', error); }
       setJitsiApi(null);
     }
-
     setJitsiInitialized(false);
     setIsVideoSharing(false);
     setCurrentSharedVideo('');
@@ -434,10 +447,8 @@ function App() {
     setIsPlaylistSynced(false);
     setAudioMuted(false);
     setSyncStatus('disconnected');
-
     setPlaylist([]);
     localStorage.removeItem('jitsi_shared_playlist');
-
     if (jitsiContainerRef.current) {
       while (jitsiContainerRef.current.firstChild) {
         jitsiContainerRef.current.removeChild(jitsiContainerRef.current.firstChild);
@@ -448,17 +459,12 @@ function App() {
   const initializeJitsiOnLoad = () => {
     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
-
     if (!existingScript) {
       const script = document.createElement('script');
       script.src = jitsiScriptUrl;
       script.async = true;
-      script.onload = () => {
-        initializeJitsi();
-      };
-      script.onerror = () => {
-        console.error('Failed to load Jitsi External API script.');
-      };
+      script.onload = initializeJitsi;
+      script.onerror = () => console.error('Failed to load Jitsi External API script.');
       document.head.appendChild(script);
     } else {
       initializeJitsi();
@@ -467,14 +473,11 @@ function App() {
 
   useEffect(() => {
     initializeJitsiOnLoad();
-    return () => {
-      cleanupJitsi();
-    };
+    return () => { cleanupJitsi(); };
   }, []);
 
   useEffect(() => {
     if (!jitsiContainerRef.current) return;
-
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList') {
@@ -486,30 +489,19 @@ function App() {
         }
       });
     });
-
-    observer.observe(jitsiContainerRef.current, {
-      childList: true,
-      subtree: true
-    });
-
-    return () => {
-      observer.disconnect();
-    };
+    observer.observe(jitsiContainerRef.current, { childList: true, subtree: true });
+    return () => { observer.disconnect(); };
   }, [jitsiContainerRef]);
 
   const toggleMap = () => {
     setShowMap(!showMap);
-    if (showPlaylist) {
-      setShowPlaylist(false);
-    }
+    if (showPlaylist) setShowPlaylist(false);
+    if (isSharingSlides) setIsSharingSlides(false);
   };
-
   const shareVideoDirectly = () => {
     if (jitsiApi && videoUrl) {
       try {
-        if (isVideoSharing) {
-          stopVideoSharing();
-        }
+        if (isVideoSharing) stopVideoSharing();
         jitsiApi.executeCommand('startShareVideo', videoUrl);
         setIsVideoSharing(true);
         setCurrentSharedVideo(videoUrl);
@@ -544,34 +536,20 @@ function App() {
     if (videoUrl && extractYouTubeVideoId(videoUrl)) {
       setIsLoadingVideoTitle(true);
       const videoId = extractYouTubeVideoId(videoUrl);
-
       try {
         const videoTitle = await fetchYouTubeVideoTitle(videoUrl);
-
-        const newVideo = {
-          id: Date.now() + Math.random(),
-          url: videoUrl,
-          videoId: videoId,
-          title: videoTitle,
-        };
-
+        const newVideo = { id: Date.now() + Math.random(), url: videoUrl, videoId: videoId, title: videoTitle, };
         setPlaylist((prev) => {
           const newPlaylist = [...prev, newVideo];
           storePlaylistLocally(newPlaylist);
           return newPlaylist;
         });
         setVideoUrl('');
-
         broadcastPlaylistUpdate('ADD', newVideo);
         setIsPlaylistSynced(true);
       } catch (error) {
         console.error('Error adding video to playlist:', error);
-        const newVideo = {
-          id: Date.now() + Math.random(),
-          url: videoUrl,
-          videoId: videoId,
-          title: `Video ${playlist.length + 1}`,
-        };
+        const newVideo = { id: Date.now() + Math.random(), url: videoUrl, videoId: videoId, title: `Video ${playlist.length + 1}`, };
         setPlaylist((prev) => {
           const newPlaylist = [...prev, newVideo];
           storePlaylistLocally(newPlaylist);
@@ -595,17 +573,12 @@ function App() {
     });
     broadcastPlaylistUpdate('REMOVE', { id });
   };
-
-  // Renamed to handleShareVideo from playlist
   const handleShareVideo = (url) => {
     if (jitsiApi) {
       try {
         const videoId = extractYouTubeVideoId(url);
         if (videoId) {
-          // If a video is already playing, stop it first
-          if (isVideoSharing) {
-            stopVideoSharing();
-          }
+          if (isVideoSharing) stopVideoSharing();
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
@@ -624,9 +597,8 @@ function App() {
 
   const togglePlaylist = () => {
     setShowPlaylist(!showPlaylist);
-    if (showMap) {
-      setShowMap(false);
-    }
+    if (showMap) setShowMap(false);
+    if (isSharingSlides) setIsSharingSlides(false);
   };
 
   const extractYouTubeVideoId = (url) => {
@@ -642,149 +614,114 @@ function App() {
     initializeJitsi();
   };
 
-  const toggleJwtModal = () => {
-    setShowJwtModal(!showJwtModal);
-  };
+  const toggleJwtModal = () => setShowJwtModal(!showJwtModal);
 
   const handleDragStart = (e, video) => {
     setDraggedItem(video);
     e.dataTransfer.effectAllowed = "move";
   };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
+  const handleDragOver = (e) => e.preventDefault();
 
   const handleDrop = (e, targetVideo) => {
     e.preventDefault();
-    if (!draggedItem || draggedItem.id === targetVideo.id) {
-      return;
-    }
-
+    if (!draggedItem || draggedItem.id === targetVideo.id) return;
     const oldIndex = playlist.findIndex(item => item.id === draggedItem.id);
     const newIndex = playlist.findIndex(item => item.id === targetVideo.id);
-
     if (oldIndex === -1 || newIndex === -1) return;
-
     const newPlaylist = [...playlist];
     newPlaylist.splice(oldIndex, 1);
     newPlaylist.splice(newIndex, 0, draggedItem);
-
     setPlaylist(newPlaylist);
     storePlaylistLocally(newPlaylist);
     broadcastPlaylistUpdate('REORDER', newPlaylist);
     setDraggedItem(null);
   };
+  const handleDragEnd = () => setDraggedItem(null);
+  const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const handleDragEnd = () => {
-    setDraggedItem(null);
+  const toggleSlideSharing = () => {
+    setIsSharingSlides(!isSharingSlides);
+    if (showMap) setShowMap(false);
+    if (showPlaylist) setShowPlaylist(false);
   };
-
-  const filteredPlaylist = playlist.filter(video =>
-    video.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
-      <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="bg-gray-800 p-4 flex flex-col md:flex-row justify-between items-center flex-shrink-0">
+        {/* Title */}
+        <div className="flex items-center gap-3 mb-4 md:mb-0">
           <h1 className="text-white text-xl font-semibold">Lenskart Video Conference</h1>
         </div>
-        <div className="flex gap-2 items-center">
-          {/* Direct Video Share Input */}
-          <div className="flex items-center gap-2">
+
+        {/* Main Controls */}
+        <div className="flex flex-col md:flex-row flex-wrap gap-2 items-center md:items-stretch w-full md:w-auto">
+          {/* Direct Video Share Input and Buttons */}
+          <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
             <input
               type="text"
               placeholder="Paste YouTube URL to share..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none w-64"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  shareVideoDirectly();
-                }
-              }}
+              className="w-full md:w-64 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none"
+              onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
               <>
-                <Button
-                  onClick={shareVideoDirectly}
-                  variant="default"
-                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
-                  disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
-                >
+                <Button onClick={shareVideoDirectly} variant="default" className="w-full md:w-auto flex items-center gap-2 bg-green-600 hover:bg-green-700" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                   <Youtube className="w-4 h-4" />
                   Share
                 </Button>
-                <Button
-                  onClick={addToPlaylist}
-                  variant="default"
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-                  disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
-                >
+                <Button onClick={addToPlaylist} variant="default" className="w-full md:w-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                   {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   {isLoadingVideoTitle ? 'Loading...' : 'Add to Playlist'}
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={stopVideoSharing}
-                variant="destructive"
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700"
-                disabled={isInitializing}
-              >
+              <Button onClick={stopVideoSharing} variant="destructive" className="w-full md:w-auto flex items-center gap-2 bg-red-600 hover:bg-red-700" disabled={isInitializing}>
                 <X className="w-4 h-4" />
                 Stop Video
               </Button>
             )}
           </div>
-          <Button
-            onClick={toggleJwtModal}
-            variant="default"
-            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700"
-            title="Configure JWT for premium features"
-            disabled={isInitializing}
-          >
-            <Key className="w-4 h-4" />
-            JWT
-          </Button>
-          <Button
-            onClick={togglePlaylist}
-            variant={showPlaylist ? 'destructive' : 'default'}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
-            disabled={isInitializing}
-          >
-            <List className="w-4 h-4" />
-            Videos ({playlist.length})
-          </Button>
-          <Button
-            onClick={toggleMap}
-            variant={showMap ? 'destructive' : 'default'}
-            className="flex items-center gap-2"
-            disabled={isInitializing}
-          >
-            {showMap ? (
-              <>
-                <X className="w-4 h-4" />
-                Close Map
-              </>
-            ) : (
-              <>
-                <MapPin className="w-4 h-4" />
-                Show Map
-              </>
-            )}
-          </Button>
+
+          {/* Other Buttons */}
+          <div className="flex flex-wrap gap-2 mt-2 md:mt-0 w-full md:w-auto justify-center md:justify-start">
+            <Button onClick={toggleSlideSharing} variant={isSharingSlides ? 'destructive' : 'default'} className={`flex-1 md:flex-auto flex items-center gap-2 ${isSharingSlides ? 'bg-red-600 hover:bg-red-700' : 'bg-cyan-600 hover:bg-cyan-700'}`} disabled={isInitializing || isUploading}>
+              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : isSharingSlides ? <X className="w-4 h-4" /> : <List className="w-4 h-4" />}
+              <span className="hidden sm:inline">{isUploading ? 'Uploading...' : isSharingSlides ? 'Stop Slides' : 'Share PPT'}</span>
+            </Button>
+            <input type="file" accept=".ppt,.pptx" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+            <Button onClick={toggleJwtModal} variant="default" className="flex-1 md:flex-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700" title="Configure JWT for premium features" disabled={isInitializing}>
+              <Key className="w-4 h-4" />
+              <span className="hidden sm:inline">JWT</span>
+            </Button>
+            <Button onClick={togglePlaylist} variant={showPlaylist ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2 bg-purple-600 hover:bg-purple-700" disabled={isInitializing}>
+              <List className="w-4 h-4" />
+              <span className="hidden sm:inline">Videos ({playlist.length})</span>
+            </Button>
+            <Button onClick={toggleMap} variant={showMap ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2" disabled={isInitializing}>
+              {showMap ? (
+                <>
+                  <X className="w-4 h-4" />
+                  <span className="hidden sm:inline">Close Map</span>
+                </>
+              ) : (
+                <>
+                  <MapPin className="w-4 h-4" />
+                  <span className="hidden sm:inline">Show Map</span>
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
         {/* Jitsi Container */}
-        <div className={`${showMap || showPlaylist ? 'w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
+        <div className={`${showMap || showPlaylist || isSharingSlides ? 'w-full md:w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
@@ -794,7 +731,6 @@ function App() {
               </div>
             </div>
           )}
-
           <div
             ref={jitsiContainerRef}
             id="jitsi-container"
@@ -806,9 +742,37 @@ function App() {
           />
         </div>
 
+        {/* Slide Sharing Panel */}
+        {isSharingSlides && (
+          <div className="w-full md:w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+            <div className="p-4 flex-shrink-0 flex items-center justify-between">
+              <h2 className="text-white text-lg font-semibold">
+                Slide Presentation ({currentSlide + 1} of {slideImages.length})
+              </h2>
+              <div className="flex gap-2">
+                <Button onClick={handlePreviousSlide} disabled={currentSlide === 0}>
+                  Previous
+                </Button>
+                <Button onClick={handleNextSlide} disabled={currentSlide === slideImages.length - 1}>
+                  Next
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 p-4 flex items-center justify-center overflow-auto">
+              {slideImages.length > 0 && (
+                <img
+                  src={slideImages[currentSlide]}
+                  alt={`Slide ${currentSlide + 1}`}
+                  className="max-w-full max-h-full object-contain shadow-lg"
+                />
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Team Playlist Panel */}
         {showPlaylist && (
-          <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+          <div className="w-full md:w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-white text-lg font-semibold">Video Playlist</h2>
@@ -849,33 +813,15 @@ function App() {
                         </div>
                         <div className="flex-shrink-0 flex items-center gap-2 ml-4">
                           {currentSharedVideo === video.url ? (
-                            <Button
-                              onClick={stopVideoSharing}
-                              variant="ghost"
-                              size="sm"
-                              title="Stop this video"
-                              disabled={isInitializing}
-                            >
+                            <Button onClick={stopVideoSharing} variant="ghost" size="sm" title="Stop this video" disabled={isInitializing}>
                               <X className="w-4 h-4 text-red-400" />
                             </Button>
                           ) : (
-                            <Button
-                              onClick={() => handleShareVideo(video.url)}
-                              variant="ghost"
-                              size="sm"
-                              title="Play this video now"
-                              disabled={isInitializing}
-                            >
+                            <Button onClick={() => handleShareVideo(video.url)} variant="ghost" size="sm" title="Play this video now" disabled={isInitializing}>
                               <Play className="w-4 h-4 text-green-400" />
                             </Button>
                           )}
-                          <Button
-                            onClick={() => removeFromPlaylist(video.id)}
-                            variant="ghost"
-                            size="sm"
-                            title="Remove from playlist"
-                            disabled={isInitializing}
-                          >
+                          <Button onClick={() => removeFromPlaylist(video.id)} variant="ghost" size="sm" title="Remove from playlist" disabled={isInitializing}>
                             <Trash2 className="w-4 h-4 text-red-400" />
                           </Button>
                         </div>
@@ -890,7 +836,7 @@ function App() {
 
         {/* Enhanced Free Map Panel */}
         {showMap && (
-          <div className="w-1/2 h-full bg-gray-900 border-l border-gray-600 flex flex-col min-h-0">
+          <div className="w-full md:w-1/2 h-full bg-gray-900 border-l border-gray-600 flex flex-col min-h-0">
             <EnhancedFreeMap />
           </div>
         )}
