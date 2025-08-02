@@ -596,9 +596,7 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
         {/* Jitsi Container */}
-        <div className={`w-full h-full bg-black flex flex-col min-h-0 relative ${
-          (showPlaylist || showMap) ? 'md:w-1/2' : ''
-        } transition-all duration-300`}>
+        <div className="w-full h-full bg-black flex flex-col min-h-0 relative">
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-950">
               <div className="text-center">
@@ -620,88 +618,85 @@ function App() {
         </div>
 
         {/* Panels Container */}
-        <div className={`
-          fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800
-          border-t md:border-l border-gray-700 shadow-xl
-          flex flex-col z-20 transition-transform duration-300 ease-in-out
-          ${(showPlaylist || showMap) ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
-          `}>
-          {/* Playlist Panel */}
-          {showPlaylist && (
-            <div className="flex flex-col h-full">
-              <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
-                <h2 className="text-lg font-semibold">Video Playlist ({playlist.length})</h2>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search videos..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-48 px-3 py-1 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-8"
-                  />
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        {(showPlaylist || showMap) && (
+          <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800 border-t md:border-l border-gray-700 shadow-xl flex flex-col z-20 transition-transform duration-300 ease-in-out">
+            {/* Playlist Panel */}
+            {showPlaylist && (
+              <div className="flex flex-col h-full">
+                <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
+                  <h2 className="text-lg font-semibold">Video Playlist ({playlist.length})</h2>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search videos..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-48 px-3 py-1 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-8"
+                    />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                  {filteredPlaylist.length === 0 ? (
+                    <div className="text-gray-400 text-center py-8">
+                      <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>No videos found</p>
+                      <p className="text-sm">Add YouTube URLs or try a different search term.</p>
+                    </div>
+                  ) : (
+                    filteredPlaylist.map((video) => (
+                      <div
+                        key={video.id}
+                        className={`
+                          bg-gray-700/50 rounded-xl p-3 shadow-md
+                          flex items-center gap-4 cursor-grab
+                          active:cursor-grabbing transform transition-all duration-150
+                          ${draggedItem?.id === video.id ? 'opacity-50 scale-95 ring-2 ring-blue-500' : ''}
+                          ${currentSharedVideo === video.url ? 'border-l-4 border-green-500' : 'border-l-4 border-transparent'}
+                        `}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, video)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, video)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm leading-tight text-white">{video.title}</h3>
+                        </div>
+                        <div className="flex-shrink-0 flex items-center gap-2 ml-4">
+                          {currentSharedVideo === video.url ? (
+                            <Button onClick={stopVideoSharing} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Stop this video" disabled={isInitializing}>
+                              <X className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button onClick={() => handleShareVideo(video.url)} variant="ghost" size="icon" className="text-green-400 hover:bg-green-400/20" title="Play this video now" disabled={isInitializing}>
+                              <Play className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button onClick={() => removeFromPlaylist(video.id)} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Remove from playlist" disabled={isInitializing}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                {filteredPlaylist.length === 0 ? (
-                  <div className="text-gray-400 text-center py-8">
-                    <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No videos found</p>
-                    <p className="text-sm">Add YouTube URLs or try a different search term.</p>
-                  </div>
-                ) : (
-                  filteredPlaylist.map((video) => (
-                    <div
-                      key={video.id}
-                      className={`
-                        bg-gray-700/50 rounded-xl p-3 shadow-md
-                        flex items-center gap-4 cursor-grab
-                        active:cursor-grabbing transform transition-all duration-150
-                        ${draggedItem?.id === video.id ? 'opacity-50 scale-95 ring-2 ring-blue-500' : ''}
-                        ${currentSharedVideo === video.url ? 'border-l-4 border-green-500' : 'border-l-4 border-transparent'}
-                      `}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, video)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, video)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm leading-tight text-white">{video.title}</h3>
-                      </div>
-                      <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                        {currentSharedVideo === video.url ? (
-                          <Button onClick={stopVideoSharing} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Stop this video" disabled={isInitializing}>
-                            <X className="w-4 h-4" />
-                          </Button>
-                        ) : (
-                          <Button onClick={() => handleShareVideo(video.url)} variant="ghost" size="icon" className="text-green-400 hover:bg-green-400/20" title="Play this video now" disabled={isInitializing}>
-                            <Play className="w-4 h-4" />
-                          </Button>
-                        )}
-                        <Button onClick={() => removeFromPlaylist(video.id)} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Remove from playlist" disabled={isInitializing}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Map Panel */}
-          {showMap && (
-            <div className="flex flex-col h-full">
-              <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
-                <h2 className="text-lg font-semibold">Live Map</h2>
+            {/* Map Panel */}
+            {showMap && (
+              <div className="flex flex-col h-full">
+                <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
+                  <h2 className="text-lg font-semibold">Live Map</h2>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <EnhancedFreeMap />
+                </div>
               </div>
-              <div className="flex-1 min-h-0">
-                <EnhancedFreeMap />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* JWT Modal */}
