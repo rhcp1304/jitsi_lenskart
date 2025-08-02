@@ -502,12 +502,14 @@ function App() {
 
   const handleDrop = (e) => {
     e.preventDefault();
-    const newPlaylist = [...playlist];
-    const draggedItem = newPlaylist.splice(dragItem.current, 1)[0];
-    newPlaylist.splice(dragOverItem.current, 0, draggedItem);
-    setPlaylist(newPlaylist);
-    storePlaylistLocally(newPlaylist);
-    broadcastPlaylistUpdate('REORDER', newPlaylist);
+    setPlaylist((prev) => {
+      const newPlaylist = [...prev];
+      const draggedItem = newPlaylist.splice(dragItem.current, 1)[0];
+      newPlaylist.splice(dragOverItem.current, 0, draggedItem);
+      storePlaylistLocally(newPlaylist);
+      broadcastPlaylistUpdate('REORDER', newPlaylist);
+      return newPlaylist;
+    });
   };
 
   const filteredPlaylist = playlist.filter(video =>
