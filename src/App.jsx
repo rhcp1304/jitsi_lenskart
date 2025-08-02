@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button.jsx'
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2 } from 'lucide-react'
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2, Users, Volume, VolumeX } from 'lucide-react'
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx'
 import './App.css'
 
@@ -16,6 +16,9 @@ function App() {
   const [jitsiInitialized, setJitsiInitialized] = useState(false)
   const [isInitializing, setIsInitializing] = useState(false)
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false)
+  const [participantId, setParticipantId] = useState('')
+  const [isPlaylistSynced, setIsPlaylistSynced] = useState(false)
+  const [audioMuted, setAudioMuted] = useState(false)
   const jitsiContainerRef = useRef(null)
   const [jitsiApi, setJitsiApi] = useState(null)
 
@@ -31,6 +34,101 @@ function App() {
       console.error('Error fetching video title:', error)
     }
     return 'Unknown Video'
+  }
+
+  // Broadcast playlist changes to all participants
+  const broadcastPlaylistUpdate = (action, data) => {
+    if (jitsiApi) {
+      try {
+        const message = {
+          type: 'PLAYLIST_UPDATE',
+          action: action, // 'ADD', 'REMOVE', 'SYNC'
+          data: data,
+          participantId: participantId,
+          timestamp: Date.now()
+        }
+        jitsiApi.executeCommand('sendEndpointTextMessage', '', JSON.stringify(message))
+        console.log('Broadcasted playlist update:', message)
+      } catch (error) {
+        console.error('Error broadcasting playlist update:', error)
+      }
+    }
+  }
+
+  // Handle incoming playlist updates from other participants
+  const handlePlaylistUpdate = (message) => {
+    try {
+      const update = JSON.parse(message.data)
+      if (update.type === 'PLAYLIST_UPDATE' && update.participantId !== participantId) {
+        console.log('Received playlist update:', update)
+
+        switch (update.action) {
+          case 'ADD':
+            setPlaylist(prev => {
+              const exists = prev.find(video => video.id === update.data.id)
+              if (!exists) {
+                return [...prev, update.data]
+              }
+              return prev
+            })
+            break
+          case 'REMOVE':
+            setPlaylist(prev => prev.filter(video => video.id !== update.data.id))
+            break
+          case 'SYNC':
+            setPlaylist(update.data)
+            break
+        }
+        setIsPlaylistSynced(true)
+      }
+    } catch (error) {
+      console.error('Error handling playlist update:', error)
+    }
+  }
+
+  // Force mute audio for shared videos
+  const forceAudioMute = () => {
+    if (jitsiApi) {
+      try {
+        // Multiple approaches to ensure audio is muted
+        jitsiApi.executeCommand('toggleAudio') // Mute participant's audio
+
+        // Try to access and mute the shared video iframe
+        setTimeout(() => {
+          const sharedVideoIframe = document.querySelector('iframe[src*="youtube.com"]')
+          if (sharedVideoIframe) {
+            try {
+              // Add mute parameter to YouTube iframe
+              const currentSrc = sharedVideoIframe.src
+              if (!currentSrc.includes('mute=1')) {
+                sharedVideoIframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'mute=1'
+              }
+            } catch (error) {
+              console.log('Could not modify iframe directly:', error)
+            }
+          }
+
+          // CSS approach to hide audio controls
+          const style = document.createElement('style')
+          style.textContent = `
+            .shared-video audio,
+            .shared-video video {
+              muted: true !important;
+            }
+            .shared-video .ytp-volume-area,
+            .shared-video .ytp-mute-button {
+              display: none !important;
+            }
+          `
+          document.head.appendChild(style)
+
+          setAudioMuted(true)
+        }, 2000)
+
+      } catch (error) {
+        console.error('Error forcing audio mute:', error)
+      }
+    }
   }
 
   const initializeJitsi = async () => {
@@ -92,8 +190,10 @@ function App() {
           sharedVideoService: {
             disabled: false,
             hideControls: false, // Show controls including seek bar
-            muteAudio: true, // Permanently mute shared videos
-          }
+          },
+          // Enable data channels for playlist sharing
+          channelLastN: -1,
+          enableDataChannels: true,
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
@@ -131,6 +231,16 @@ function App() {
 
       api.addEventListener('videoConferenceJoined', (event) => {
         console.log('Jitsi event: Video conference joined:', event);
+        // Set participant ID for playlist sharing
+        const id = event.id || `participant_${Date.now()}`
+        setParticipantId(id)
+
+        // Broadcast current playlist to new participants
+        if (playlist.length > 0) {
+          setTimeout(() => {
+            broadcastPlaylistUpdate('SYNC', playlist)
+          }, 2000)
+        }
       })
 
       api.addEventListener('videoConferenceLeft', (event) => {
@@ -139,10 +249,36 @@ function App() {
 
       api.addEventListener('participantJoined', (event) => {
         console.log('Jitsi event: Participant joined:', event);
+        // Broadcast current playlist to new participant
+        if (playlist.length > 0) {
+          setTimeout(() => {
+            broadcastPlaylistUpdate('SYNC', playlist)
+          }, 1000)
+        }
       })
 
       api.addEventListener('participantLeft', (event) => {
         console.log('Jitsi event: Participant left:', event);
+      })
+
+      // Listen for data channel messages (playlist updates)
+      api.addEventListener('endpointTextMessageReceived', (event) => {
+        console.log('Received text message:', event);
+        handlePlaylistUpdate(event)
+      })
+
+      // Listen for shared video events
+      api.addEventListener('sharedVideoStarted', (event) => {
+        console.log('Shared video started:', event);
+        // Force mute audio when video starts
+        setTimeout(() => {
+          forceAudioMute()
+        }, 1000)
+      })
+
+      api.addEventListener('sharedVideoStopped', (event) => {
+        console.log('Shared video stopped:', event);
+        setAudioMuted(false)
       })
 
       // Wait for API to be ready by checking for a reliable method
@@ -192,6 +328,9 @@ function App() {
     setJitsiInitialized(false); // Reset initialization state
     setIsVideoSharing(false);
     setCurrentSharedVideo('');
+    setParticipantId('');
+    setIsPlaylistSynced(false);
+    setAudioMuted(false);
 
     // Ensure the container is truly empty after disposal
     if (jitsiContainerRef.current) {
@@ -262,18 +401,16 @@ function App() {
           // Start sharing with enhanced configuration
           jitsiApi.executeCommand('startShareVideo', fullUrl)
 
-          // Additional configuration for permanent muting and seek bar visibility
-          setTimeout(() => {
-            if (jitsiApi) {
-              // Ensure the shared video is muted
-              jitsiApi.executeCommand('muteSharedVideo', true)
-            }
-          }, 1000)
-
           setIsVideoSharing(true)
           setCurrentSharedVideo(videoUrl)
           setVideoUrl('')
-          console.log('Video sharing started with enhanced config:', fullUrl)
+          console.log('Video sharing started:', fullUrl)
+
+          // Force audio mute after a delay
+          setTimeout(() => {
+            forceAudioMute()
+          }, 2000)
+
         } catch (error) {
           console.error('Error sharing video:', error)
           alert('Failed to share video. Please make sure you have joined the meeting.')
@@ -294,6 +431,7 @@ function App() {
         jitsiApi.executeCommand('stopShareVideo')
         setIsVideoSharing(false)
         setCurrentSharedVideo('')
+        setAudioMuted(false)
         console.log('Video sharing stopped')
       } catch (error) {
         console.error('Error stopping video:', error)
@@ -315,11 +453,17 @@ function App() {
           url: videoUrl,
           videoId: videoId,
           title: videoTitle,
-          addedAt: new Date().toLocaleString()
+          addedAt: new Date().toLocaleString(),
+          addedBy: participantId || 'Unknown'
         }
-        setPlaylist([...playlist, newVideo])
+
+        setPlaylist(prev => [...prev, newVideo])
         setVideoUrl('')
-        console.log('Added video to playlist with title:', videoTitle)
+
+        // Broadcast the addition to all participants
+        broadcastPlaylistUpdate('ADD', newVideo)
+
+        console.log('Added video to shared playlist:', videoTitle)
       } catch (error) {
         console.error('Error adding video to playlist:', error)
         // Fallback to generic title if API fails
@@ -328,9 +472,11 @@ function App() {
           url: videoUrl,
           videoId: videoId,
           title: `Video ${playlist.length + 1}`,
-          addedAt: new Date().toLocaleString()
+          addedAt: new Date().toLocaleString(),
+          addedBy: participantId || 'Unknown'
         }
-        setPlaylist([...playlist, newVideo])
+        setPlaylist(prev => [...prev, newVideo])
+        broadcastPlaylistUpdate('ADD', newVideo)
         setVideoUrl('')
       } finally {
         setIsLoadingVideoTitle(false)
@@ -341,7 +487,9 @@ function App() {
   }
 
   const removeFromPlaylist = (id) => {
-    setPlaylist(playlist.filter(video => video.id !== id))
+    setPlaylist(prev => prev.filter(video => video.id !== id))
+    // Broadcast the removal to all participants
+    broadcastPlaylistUpdate('REMOVE', { id })
   }
 
   const shareFromPlaylist = (url) => {
@@ -350,17 +498,15 @@ function App() {
         // Share video with enhanced configuration
         jitsiApi.executeCommand('startShareVideo', url)
 
-        // Additional configuration for permanent muting and seek bar visibility
-        setTimeout(() => {
-          if (jitsiApi) {
-            // Ensure the shared video is muted
-            jitsiApi.executeCommand('muteSharedVideo', true)
-          }
-        }, 1000)
-
         setIsVideoSharing(true)
         setCurrentSharedVideo(url)
-        console.log('Video from playlist shared with enhanced config:', url)
+        console.log('Video from shared playlist shared:', url)
+
+        // Force audio mute after a delay
+        setTimeout(() => {
+          forceAudioMute()
+        }, 2000)
+
       } catch (error) {
         console.error('Error sharing video from playlist:', error)
         alert('Failed to share video. Please make sure you have joined the meeting.')
@@ -420,7 +566,21 @@ function App() {
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
       <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
-        <h1 className="text-white text-xl font-semibold">Video Conference</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-white text-xl font-semibold">NSO Team Meeting</h1>
+          {isPlaylistSynced && (
+            <div className="flex items-center gap-1 text-green-400 text-sm">
+              <Users className="w-4 h-4" />
+              <span>Shared</span>
+            </div>
+          )}
+          {audioMuted && (
+            <div className="flex items-center gap-1 text-red-400 text-sm">
+              <VolumeX className="w-4 h-4" />
+              <span>Muted</span>
+            </div>
+          )}
+        </div>
         <div className="flex gap-2 items-center">
           {/* Direct Video Share Input */}
           <div className="flex items-center gap-2">
@@ -459,7 +619,7 @@ function App() {
                   ) : (
                     <Plus className="w-4 h-4" />
                   )}
-                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Playlist'}
+                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Shared Playlist'}
                 </Button>
               </>
             ) : (
@@ -505,7 +665,7 @@ function App() {
             disabled={isInitializing}
           >
             <List className="w-4 h-4" />
-            Playlist ({playlist.length})
+            Shared Playlist ({playlist.length})
           </Button>
           <Button
             onClick={toggleMap}
@@ -552,17 +712,34 @@ function App() {
           />
         </div>
 
-        {/* Playlist Panel */}
+        {/* Shared Playlist Panel */}
         {showPlaylist && (
           <div className="w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto">
               <div className="p-4">
-                <h2 className="text-white text-lg font-semibold mb-4">Video Playlist</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-white text-lg font-semibold">Shared Video Playlist</h2>
+                  <div className="flex items-center gap-2 text-sm">
+                    {isPlaylistSynced && (
+                      <div className="flex items-center gap-1 text-green-400">
+                        <Users className="w-4 h-4" />
+                        <span>Synced</span>
+                      </div>
+                    )}
+                    {audioMuted && (
+                      <div className="flex items-center gap-1 text-red-400">
+                        <VolumeX className="w-4 h-4" />
+                        <span>Auto-Muted</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {playlist.length === 0 ? (
                   <div className="text-gray-400 text-center py-8">
                     <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No videos in playlist</p>
-                    <p className="text-sm">Add YouTube URLs to build your playlist</p>
+                    <p>No videos in shared playlist</p>
+                    <p className="text-sm">Add YouTube URLs to build your team playlist</p>
+                    <p className="text-xs mt-2 text-gray-500">All participants can see and manage this playlist</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -572,7 +749,12 @@ function App() {
                           <div className="flex-1 min-w-0">
                             <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
                             <p className="text-gray-400 text-xs truncate">{video.url}</p>
-                            <p className="text-gray-500 text-xs">Added: {video.addedAt}</p>
+                            <div className="flex items-center gap-2 text-gray-500 text-xs mt-1">
+                              <span>Added: {video.addedAt}</span>
+                              {video.addedBy && (
+                                <span>• By: {video.addedBy}</span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex gap-2 ml-3 flex-shrink-0">
                             <Button
@@ -581,7 +763,7 @@ function App() {
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"
                               disabled={isVideoSharing || isInitializing}
-                              title="Share this video (muted with visible seek bar)"
+                              title="Share this video (auto-muted with visible seek bar)"
                             >
                               <Play className="w-4 h-4" />
                             </Button>
@@ -591,6 +773,7 @@ function App() {
                               size="sm"
                               className="bg-red-600 hover:bg-red-700"
                               disabled={isInitializing}
+                              title="Remove from shared playlist"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
