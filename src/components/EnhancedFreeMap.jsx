@@ -5,7 +5,7 @@ import {
   Marker,
   DirectionsRenderer
 } from '@react-google-maps/api';
-import { Search, ChevronUp, ChevronLeft } from 'lucide-react'; // Added ChevronLeft
+import { Search, ChevronUp, ChevronLeft } from 'lucide-react';
 
 const libraries = ['places'];
 
@@ -21,6 +21,9 @@ const EnhancedFreeMap = () => {
   const [zoom, setZoom] = useState(13);
 
   const [fromLocation, setFromLocation] = useState('');
+  const [fromLocationSuggestions, setFromLocationSuggestions] = useState([]);
+  const [showFromSuggestions, setShowFromSuggestions] = useState(false);
+
   const [routeData, setRouteData] = useState(null);
   const [routeError, setRouteError] = useState('');
 
@@ -92,6 +95,15 @@ const EnhancedFreeMap = () => {
     });
   };
 
+  const handleFromLocationChange = (e) => {
+    const query = e.target.value;
+    setFromLocation(query);
+    getPlacePredictions(query, (predictions) => {
+      setFromLocationSuggestions(predictions);
+      setShowFromSuggestions(!!predictions.length);
+    });
+  };
+
   const selectSearchResult = (placeId) => {
     getPlaceDetails(placeId, (place) => {
       if (place) {
@@ -104,6 +116,12 @@ const EnhancedFreeMap = () => {
       setSearchResults([]);
       setShowSearchResults(false);
     });
+  };
+
+  const selectFromLocation = (description) => {
+    setFromLocation(description);
+    setFromLocationSuggestions([]);
+    setShowFromSuggestions(false);
   };
 
   const handleDirections = async () => {
@@ -157,6 +175,8 @@ const EnhancedFreeMap = () => {
     setShowSearchResults(false);
     setSelectedPlace(null);
     setFromLocation('');
+    setFromLocationSuggestions([]);
+    setShowFromSuggestions(false);
     setRouteData(null);
     setRouteError('');
     setShowDirectionsForm(false);
@@ -245,9 +265,24 @@ const EnhancedFreeMap = () => {
                       type="text"
                       placeholder="Your location"
                       value={fromLocation}
-                      onChange={(e) => setFromLocation(e.target.value)}
+                      onChange={handleFromLocationChange}
                       className="w-full p-2 border border-gray-300 rounded-md"
+                      onFocus={() => setShowFromSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowFromSuggestions(false), 200)}
                     />
+                    {showFromSuggestions && fromLocationSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {fromLocationSuggestions.map((result, index) => (
+                          <div
+                            key={index}
+                            onMouseDown={() => selectFromLocation(result.description)}
+                            className="p-2 cursor-pointer hover:bg-gray-100 border-b last:border-b-0"
+                          >
+                            {result.description}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
