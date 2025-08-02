@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2, Users, Volume, VolumeX, Wifi, WifiOff } from 'lucide-react';
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -476,7 +476,8 @@ function App() {
     }
   };
 
-  useEffect(() => {
+  // Function to initialize Jitsi without refreshing
+  const initializeJitsiOnLoad = () => {
     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
 
@@ -491,16 +492,16 @@ function App() {
         console.error('Failed to load Jitsi External API script.');
       };
       document.head.appendChild(script);
-
-      return () => {
-        cleanupJitsi();
-      };
     } else {
       initializeJitsi();
-      return () => {
-        cleanupJitsi();
-      };
     }
+  };
+
+  useEffect(() => {
+    initializeJitsiOnLoad();
+    return () => {
+      cleanupJitsi();
+    };
   }, []);
 
   // Use a MutationObserver to ensure videos are muted as soon as they appear in the DOM
@@ -543,7 +544,7 @@ function App() {
     if (jitsiApi && videoUrl) {
       const videoId = extractYouTubeVideoId(videoUrl);
       if (videoId) {
-        // CORRECTED: Pass the video ID directly and let Jitsi handle the embed URL
+        // Pass the video ID directly and let Jitsi handle the embed URL
         const mutedUrl = `youtube.com${videoId}?mute=1&autoplay=1`;
         try {
           jitsiApi.executeCommand('startShareVideo', mutedUrl);
@@ -646,7 +647,7 @@ function App() {
       try {
         const videoId = extractYouTubeVideoId(url);
         if (videoId) {
-          // CORRECTED: Pass the video ID directly and let Jitsi handle the embed URL
+          // Pass the video ID directly and let Jitsi handle the embed URL
           const mutedUrl = `youtube.com${videoId}?mute=1&autoplay=1`;
           jitsiApi.executeCommand('startShareVideo', mutedUrl);
           setIsVideoSharing(true);
@@ -682,13 +683,7 @@ function App() {
     setShowJwtModal(false);
     cleanupJitsi();
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await initializeJitsi();
-  };
-
-  const refreshJitsi = async () => {
-    cleanupJitsi();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    await initializeJitsi();
+    initializeJitsi();
   };
 
   const toggleJwtModal = () => {
@@ -700,7 +695,7 @@ function App() {
       {/* Header */}
       <div className="bg-gray-800 p-4 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-white text-xl font-semibold">NSO Team Meeting</h1>
+          <h1 className="text-white text-xl font-semibold">Lenskart Video Conference</h1>
         </div>
         <div className="flex gap-2 items-center">
           {/* Direct Video Share Input */}
@@ -762,16 +757,6 @@ function App() {
             JWT
           </Button>
           <Button
-            onClick={refreshJitsi}
-            variant="default"
-            className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700"
-            title="Refresh Jitsi meeting if issues occur"
-            disabled={isInitializing}
-          >
-            {isInitializing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-            {isInitializing ? 'Loading...' : 'Refresh'}
-          </Button>
-          <Button
             onClick={togglePlaylist}
             variant={showPlaylist ? 'destructive' : 'default'}
             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
@@ -808,7 +793,7 @@ function App() {
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
-                <RefreshCw className="w-8 h-8 animate-spin text-white mx-auto mb-4" />
+                <Loader2 className="w-8 h-8 animate-spin text-white mx-auto mb-4" />
                 <p className="text-white text-lg">Initializing meeting...</p>
                 <p className="text-gray-400 text-sm">Please wait while we set up your conference</p>
               </div>
