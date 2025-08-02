@@ -377,10 +377,14 @@ function App() {
       });
 
       api.addEventListener('sharedVideoStarted', (event) => {
+        setIsVideoSharing(true);
+        setCurrentSharedVideo(event.url);
         forceAudioMute();
       });
 
       api.addEventListener('sharedVideoStopped', (event) => {
+        setIsVideoSharing(false);
+        setCurrentSharedVideo('');
         stopMutingInterval();
         setAudioMuted(false);
       });
@@ -505,6 +509,9 @@ function App() {
   const shareVideoDirectly = () => {
     if (jitsiApi && videoUrl) {
       try {
+        if (isVideoSharing) {
+          stopVideoSharing();
+        }
         jitsiApi.executeCommand('startShareVideo', videoUrl);
         setIsVideoSharing(true);
         setCurrentSharedVideo(videoUrl);
@@ -591,11 +598,16 @@ function App() {
     broadcastPlaylistUpdate('REMOVE', { id });
   };
 
-  const shareFromPlaylist = (url) => {
+  // Renamed to handleShareVideo from playlist
+  const handleShareVideo = (url) => {
     if (jitsiApi) {
       try {
         const videoId = extractYouTubeVideoId(url);
         if (videoId) {
+          // If a video is already playing, stop it first
+          if (isVideoSharing) {
+            stopVideoSharing();
+          }
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
@@ -696,7 +708,7 @@ function App() {
                   shareVideoDirectly();
                 }
               }}
-              disabled={isVideoSharing || isInitializing || isLoadingVideoTitle}
+              disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
               <>
@@ -826,7 +838,7 @@ function App() {
                   {filteredPlaylist.map((video) => (
                     <div
                       key={video.id}
-                      className={`bg-gray-700 rounded-lg p-3 cursor-move ${draggedItem?.id === video.id ? 'opacity-50 border-2 border-blue-500' : ''}`}
+                      className={`bg-gray-700 rounded-lg p-3 cursor-move ${draggedItem?.id === video.id ? 'opacity-50 border-2 border-blue-500' : ''} ${currentSharedVideo === video.url ? 'border-2 border-green-500' : ''}`}
                       draggable
                       onDragStart={(e) => handleDragStart(e, video)}
                       onDragOver={handleDragOver}
@@ -838,15 +850,27 @@ function App() {
                           <h3 className="text-white font-medium text-sm leading-tight">{video.title}</h3>
                         </div>
                         <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                          <Button
-                            onClick={() => shareFromPlaylist(video.url)}
-                            variant="ghost"
-                            size="sm"
-                            title="Share this video now"
-                            disabled={isInitializing}
-                          >
-                            <Play className="w-4 h-4 text-green-400" />
-                          </Button>
+                          {currentSharedVideo === video.url ? (
+                            <Button
+                              onClick={stopVideoSharing}
+                              variant="ghost"
+                              size="sm"
+                              title="Stop this video"
+                              disabled={isInitializing}
+                            >
+                              <X className="w-4 h-4 text-red-400" />
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => handleShareVideo(video.url)}
+                              variant="ghost"
+                              size="sm"
+                              title="Play this video now"
+                              disabled={isInitializing}
+                            >
+                              <Play className="w-4 h-4 text-green-400" />
+                            </Button>
+                          )}
                           <Button
                             onClick={() => removeFromPlaylist(video.id)}
                             variant="ghost"
