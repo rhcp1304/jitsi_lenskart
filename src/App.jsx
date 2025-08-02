@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Users, Volume,
-  VolumeX, Wifi, WifiOff, Search
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Search, ChevronDown,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -535,14 +534,13 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
       {/* Header */}
-      <div className="bg-gray-800 p-4 flex flex-col md:flex-row justify-between items-center flex-shrink-0">
+      <div className="bg-gray-800 p-3 flex flex-col md:flex-row justify-between items-center flex-shrink-0">
         {/* Title */}
-        <div className="flex items-center gap-3 mb-4 md:mb-0">
-          <h1 className="text-white text-xl font-semibold">Lenskart Video Conference</h1>
+        <div className="flex items-center gap-3 mb-2 md:mb-0">
+          <h1 className="text-white text-lg font-semibold">Lenskart Video Conference</h1>
         </div>
 
         {/* Main Controls */}
@@ -554,7 +552,7 @@ function App() {
               placeholder="Paste YouTube URL to share..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="w-full md:w-64 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none"
+              className="w-full md:w-64 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
@@ -579,13 +577,12 @@ function App() {
 
           {/* Other Buttons */}
           <div className="flex flex-wrap gap-2 mt-2 md:mt-0 w-full md:w-auto justify-center md:justify-start">
-
             <Button onClick={toggleJwtModal} variant="default" className="flex-1 md:flex-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700" title="Configure JWT for premium features" disabled={isInitializing}>
               <Key className="w-4 h-4" />
               <span className="hidden sm:inline">JWT</span>
             </Button>
             <Button onClick={togglePlaylist} variant={showPlaylist ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2 bg-purple-600 hover:bg-purple-700" disabled={isInitializing}>
-              <List className="w-4 h-4" />
+              {showPlaylist ? <ChevronDown className="w-4 h-4" /> : <List className="w-4 h-4" />}
               <span className="hidden sm:inline">Videos ({playlist.length})</span>
             </Button>
             <Button onClick={toggleMap} variant={showMap ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2" disabled={isInitializing}>
@@ -606,9 +603,9 @@ function App() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
         {/* Jitsi Container */}
-        <div className={`${showMap || showPlaylist ? 'w-full md:w-1/2' : 'w-full'} h-full bg-black flex flex-col min-h-0 relative`}>
+        <div className={`w-full h-full bg-black flex flex-col min-h-0 relative ${showPlaylist || showMap ? 'md:w-1/2' : ''}`}>
           {isInitializing && (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
               <div className="text-center">
@@ -629,12 +626,15 @@ function App() {
           />
         </div>
 
-        {/* Team Playlist Panel */}
+        {/* Team Playlist Panel (Mobile-first fixed overlay) */}
         {showPlaylist && (
-          <div className="w-full md:w-1/2 h-full bg-gray-800 border-l border-gray-600 flex flex-col min-h-0">
+          <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800 border-t md:border-l border-gray-600 flex flex-col z-20 transition-transform duration-300 ease-in-out transform translate-y-0 md:translate-y-0">
             <div className="p-4">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-2">
                 <h2 className="text-white text-lg font-semibold">Video Playlist</h2>
+                <Button onClick={togglePlaylist} variant="ghost" size="sm" className="md:hidden">
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                </Button>
               </div>
               <div className="relative mb-4">
                 <input
@@ -642,7 +642,7 @@ function App() {
                   placeholder="Search videos..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-10"
+                  className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-10 text-sm"
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               </div>
@@ -693,10 +693,15 @@ function App() {
           </div>
         )}
 
-        {/* Enhanced Free Map Panel */}
+        {/* Enhanced Free Map Panel (Mobile-first fixed overlay) */}
         {showMap && (
-          <div className="w-full md:w-1/2 h-full bg-gray-900 border-l border-gray-600 flex flex-col min-h-0">
+          <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-900 border-t md:border-l border-gray-600 flex flex-col z-20 transition-transform duration-300 ease-in-out transform translate-y-0 md:translate-y-0">
             <EnhancedFreeMap />
+            <div className="absolute top-4 right-4 z-30">
+              <Button onClick={toggleMap} variant="ghost" size="sm" className="md:hidden bg-white/10 hover:bg-white/20">
+                <X className="w-5 h-5 text-white" />
+              </Button>
+            </div>
           </div>
         )}
       </div>
