@@ -13,6 +13,7 @@ function App() {
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoSharing, setIsVideoSharing] = useState(false);
   const [currentSharedVideo, setCurrentSharedVideo] = useState('');
+  // Initialize playlist as an empty array, no local storage retrieval on mount
   const [playlist, setPlaylist] = useState([]);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [jwtToken, setJwtToken] = useState('');
@@ -60,6 +61,7 @@ function App() {
   };
 
   // Get playlist from localStorage
+  // This function is kept for internal sync but won't be used on initial load
   const getLocalPlaylist = () => {
     try {
       const data = localStorage.getItem('jitsi_shared_playlist');
@@ -290,6 +292,10 @@ function App() {
         }
       }
 
+      // Clear the local playlist and local storage to start a fresh meeting
+      setPlaylist([]);
+      localStorage.removeItem('jitsi_shared_playlist');
+
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
@@ -365,14 +371,6 @@ function App() {
       api.addEventListener('videoConferenceJoined', (event) => {
         console.log('Joined conference:', event);
         setSyncStatus('connected');
-
-        // Load existing data from localStorage
-        const localData = getLocalPlaylist();
-        if (localData && localData.playlist) {
-          setPlaylist(localData.playlist);
-          setIsPlaylistSynced(true);
-        }
-
         // Start periodic sync
         setTimeout(() => {
           startPeriodicSync();
@@ -468,6 +466,10 @@ function App() {
     setIsPlaylistSynced(false);
     setAudioMuted(false);
     setSyncStatus('disconnected');
+
+    // Also clear the playlist and local storage when the component unmounts
+    setPlaylist([]);
+    localStorage.removeItem('jitsi_shared_playlist');
 
     if (jitsiContainerRef.current) {
       while (jitsiContainerRef.current.firstChild) {
