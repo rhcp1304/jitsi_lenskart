@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button.jsx'
-import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw } from 'lucide-react'
+import { MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, RefreshCw, Loader2 } from 'lucide-react'
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx'
 import './App.css'
 
@@ -15,8 +15,23 @@ function App() {
   const [showJwtModal, setShowJwtModal] = useState(false)
   const [jitsiInitialized, setJitsiInitialized] = useState(false)
   const [isInitializing, setIsInitializing] = useState(false)
+  const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false)
   const jitsiContainerRef = useRef(null)
   const [jitsiApi, setJitsiApi] = useState(null)
+
+  // Function to fetch YouTube video title using oEmbed API
+  const fetchYouTubeVideoTitle = async (videoUrl) => {
+    try {
+      const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(videoUrl)}&format=json`)
+      if (response.ok) {
+        const data = await response.json()
+        return data.title || 'Unknown Video'
+      }
+    } catch (error) {
+      console.error('Error fetching video title:', error)
+    }
+    return 'Unknown Video'
+  }
 
   const initializeJitsi = async () => {
     console.log('=== initializeJitsi called ===');
@@ -73,6 +88,12 @@ function App() {
           prejoinPageEnabled: true,
           enableWelcomePage: false,
           enableClosePage: false,
+          // Enhanced shared video configuration
+          sharedVideoService: {
+            disabled: false,
+            hideControls: false, // Show controls including seek bar
+            muteAudio: true, // Permanently mute shared videos
+          }
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
@@ -232,21 +253,27 @@ function App() {
     }
   }
 
-  const shareVideoDirectly = () => {
+  const shareVideoDirectly = async () => {
     if (jitsiApi && videoUrl) {
       const videoId = extractYouTubeVideoId(videoUrl)
       if (videoId) {
-        // Corrected YouTube video sharing URL for Jitsi.
-        // The format 'https://www.youtube.com/watch?v=${videoId}' is likely incorrect for Jitsi.
-        // A standard YouTube embed URL or direct video URL is usually expected.
-        // Let's use a standard YouTube watch URL, as Jitsi's shared video feature usually parses this.
         const fullUrl = `https://www.youtube.com/watch?v=${videoId}`
         try {
+          // Start sharing with enhanced configuration
           jitsiApi.executeCommand('startShareVideo', fullUrl)
+
+          // Additional configuration for permanent muting and seek bar visibility
+          setTimeout(() => {
+            if (jitsiApi) {
+              // Ensure the shared video is muted
+              jitsiApi.executeCommand('muteSharedVideo', true)
+            }
+          }, 1000)
+
           setIsVideoSharing(true)
           setCurrentSharedVideo(videoUrl)
           setVideoUrl('')
-          console.log('Video sharing started:', fullUrl)
+          console.log('Video sharing started with enhanced config:', fullUrl)
         } catch (error) {
           console.error('Error sharing video:', error)
           alert('Failed to share video. Please make sure you have joined the meeting.')
@@ -274,18 +301,40 @@ function App() {
     }
   }
 
-  const addToPlaylist = () => {
+  const addToPlaylist = async () => {
     if (videoUrl && extractYouTubeVideoId(videoUrl)) {
+      setIsLoadingVideoTitle(true)
       const videoId = extractYouTubeVideoId(videoUrl)
-      const newVideo = {
-        id: Date.now(),
-        url: videoUrl,
-        videoId: videoId,
-        title: `Video ${playlist.length + 1}`,
-        addedAt: new Date().toLocaleString()
+
+      try {
+        // Fetch the actual video title
+        const videoTitle = await fetchYouTubeVideoTitle(videoUrl)
+
+        const newVideo = {
+          id: Date.now(),
+          url: videoUrl,
+          videoId: videoId,
+          title: videoTitle,
+          addedAt: new Date().toLocaleString()
+        }
+        setPlaylist([...playlist, newVideo])
+        setVideoUrl('')
+        console.log('Added video to playlist with title:', videoTitle)
+      } catch (error) {
+        console.error('Error adding video to playlist:', error)
+        // Fallback to generic title if API fails
+        const newVideo = {
+          id: Date.now(),
+          url: videoUrl,
+          videoId: videoId,
+          title: `Video ${playlist.length + 1}`,
+          addedAt: new Date().toLocaleString()
+        }
+        setPlaylist([...playlist, newVideo])
+        setVideoUrl('')
+      } finally {
+        setIsLoadingVideoTitle(false)
       }
-      setPlaylist([...playlist, newVideo])
-      setVideoUrl('')
     } else {
       alert('Please enter a valid YouTube URL')
     }
@@ -298,11 +347,20 @@ function App() {
   const shareFromPlaylist = (url) => {
     if (jitsiApi) {
       try {
-        // Assuming 'url' from playlist is already a valid YouTube URL
+        // Share video with enhanced configuration
         jitsiApi.executeCommand('startShareVideo', url)
+
+        // Additional configuration for permanent muting and seek bar visibility
+        setTimeout(() => {
+          if (jitsiApi) {
+            // Ensure the shared video is muted
+            jitsiApi.executeCommand('muteSharedVideo', true)
+          }
+        }, 1000)
+
         setIsVideoSharing(true)
         setCurrentSharedVideo(url)
-        console.log('Video from playlist shared:', url)
+        console.log('Video from playlist shared with enhanced config:', url)
       } catch (error) {
         console.error('Error sharing video from playlist:', error)
         alert('Failed to share video. Please make sure you have joined the meeting.')
@@ -377,7 +435,7 @@ function App() {
                   shareVideoDirectly()
                 }
               }}
-              disabled={isVideoSharing || isInitializing}
+              disabled={isVideoSharing || isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
               <>
@@ -385,7 +443,7 @@ function App() {
                   onClick={shareVideoDirectly}
                   variant="default"
                   className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
-                  disabled={!videoUrl.trim() || isInitializing}
+                  disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
                 >
                   <Youtube className="w-4 h-4" />
                   Share
@@ -394,10 +452,14 @@ function App() {
                   onClick={addToPlaylist}
                   variant="default"
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-                  disabled={!videoUrl.trim() || isInitializing}
+                  disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}
                 >
-                  <Plus className="w-4 h-4" />
-                  Add to Playlist
+                  {isLoadingVideoTitle ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Playlist'}
                 </Button>
               </>
             ) : (
@@ -508,8 +570,8 @@ function App() {
                       <div key={video.id} className="bg-gray-700 rounded-lg p-3">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-white font-medium">{video.title}</h3>
-                            <p className="text-gray-400 text-sm truncate">{video.url}</p>
+                            <h3 className="text-white font-medium text-sm leading-tight mb-1">{video.title}</h3>
+                            <p className="text-gray-400 text-xs truncate">{video.url}</p>
                             <p className="text-gray-500 text-xs">Added: {video.addedAt}</p>
                           </div>
                           <div className="flex gap-2 ml-3 flex-shrink-0">
@@ -519,6 +581,7 @@ function App() {
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"
                               disabled={isVideoSharing || isInitializing}
+                              title="Share this video (muted with visible seek bar)"
                             >
                               <Play className="w-4 h-4" />
                             </Button>
