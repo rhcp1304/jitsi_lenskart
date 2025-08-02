@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Settings, Key, Loader2, Search, ChevronDown,
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -535,83 +535,76 @@ function App() {
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-gray-950 text-white overflow-hidden">
       {/* Header */}
-      <div className="bg-gray-800 p-3 flex flex-col md:flex-row justify-between items-center flex-shrink-0">
-        {/* Title */}
-        <div className="flex items-center gap-3 mb-2 md:mb-0">
-          <h1 className="text-white text-lg font-semibold">Lenskart Video Conference</h1>
+      <header className="bg-gray-900 p-4 flex flex-col md:flex-row justify-between items-center flex-shrink-0 shadow-lg">
+        {/* Title and Controls */}
+        <div className="flex items-center justify-between w-full md:w-auto mb-4 md:mb-0">
+          <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">Lenskart Conference</h1>
+          <div className="flex items-center md:hidden gap-2">
+            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title="Configure JWT">
+              <Key className="w-5 h-5" />
+            </Button>
+            <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title={`Videos (${playlist.length})`}>
+              {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
+            </Button>
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title="Show Map">
+              {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
+            </Button>
+          </div>
         </div>
 
-        {/* Main Controls */}
-        <div className="flex flex-col md:flex-row flex-wrap gap-2 items-center md:items-stretch w-full md:w-auto">
-          {/* Direct Video Share Input and Buttons */}
-          <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+        {/* Desktop Controls */}
+        <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+          <div className="flex items-center gap-2 w-full md:w-auto">
             <input
               type="text"
-              placeholder="Paste YouTube URL to share..."
+              placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="w-full md:w-64 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+              className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-800 text-sm placeholder-gray-500 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
-              <>
-                <Button onClick={shareVideoDirectly} variant="default" className="w-full md:w-auto flex items-center gap-2 bg-green-600 hover:bg-green-700" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
-                  <Youtube className="w-4 h-4" />
-                  Share
-                </Button>
-                <Button onClick={addToPlaylist} variant="default" className="w-full md:w-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
-                  {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  {isLoadingVideoTitle ? 'Loading...' : 'Add to Playlist'}
-                </Button>
-              </>
+              <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+                Share
+              </Button>
             ) : (
-              <Button onClick={stopVideoSharing} variant="destructive" className="w-full md:w-auto flex items-center gap-2 bg-red-600 hover:bg-red-700" disabled={isInitializing}>
-                <X className="w-4 h-4" />
-                Stop Video
+              <Button onClick={stopVideoSharing} className="bg-red-600 hover:bg-red-700 transition-colors" disabled={isInitializing}>
+                Stop
               </Button>
             )}
+            <Button onClick={addToPlaylist} variant="secondary" className="bg-gray-700 hover:bg-gray-600 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+              {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            </Button>
           </div>
-
-          {/* Other Buttons */}
-          <div className="flex flex-wrap gap-2 mt-2 md:mt-0 w-full md:w-auto justify-center md:justify-start">
-            <Button onClick={toggleJwtModal} variant="default" className="flex-1 md:flex-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700" title="Configure JWT for premium features" disabled={isInitializing}>
-              <Key className="w-4 h-4" />
-              <span className="hidden sm:inline">JWT</span>
+          <div className="hidden md:flex items-center gap-2">
+            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title="Configure JWT">
+              <Key className="w-5 h-5" />
             </Button>
-            <Button onClick={togglePlaylist} variant={showPlaylist ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2 bg-purple-600 hover:bg-purple-700" disabled={isInitializing}>
-              {showPlaylist ? <ChevronDown className="w-4 h-4" /> : <List className="w-4 h-4" />}
-              <span className="hidden sm:inline">Videos ({playlist.length})</span>
+            <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
+              {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            <Button onClick={toggleMap} variant={showMap ? 'destructive' : 'default'} className="flex-1 md:flex-auto flex items-center gap-2" disabled={isInitializing}>
-              {showMap ? (
-                <>
-                  <X className="w-4 h-4" />
-                  <span className="hidden sm:inline">Close Map</span>
-                </>
-              ) : (
-                <>
-                  <MapPin className="w-4 h-4" />
-                  <span className="hidden sm:inline">Show Map</span>
-                </>
-              )}
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title="Show Map">
+              {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
         {/* Jitsi Container */}
-        <div className={`w-full h-full bg-black flex flex-col min-h-0 relative ${showPlaylist || showMap ? 'md:w-1/2' : ''}`}>
+        <div className={`w-full h-full bg-black flex flex-col min-h-0 relative ${
+          (showPlaylist || showMap) ? 'md:w-1/2' : ''
+        } transition-all duration-300`}>
           {isInitializing && (
-            <div className="w-full h-full flex items-center justify-center bg-gray-900">
+            <div className="w-full h-full flex items-center justify-center bg-gray-950">
               <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-white mx-auto mb-4" />
-                <p className="text-white text-lg">Initializing meeting...</p>
-                <p className="text-gray-400 text-sm">Please wait while we set up your conference</p>
+                <Loader2 className="w-12 h-12 animate-spin text-white mx-auto mb-4" />
+                <p className="text-xl font-medium">Initializing meeting...</p>
+                <p className="text-gray-400 text-sm mt-1">Please wait while we set up your conference</p>
               </div>
             </div>
           )}
@@ -626,94 +619,99 @@ function App() {
           />
         </div>
 
-        {/* Team Playlist Panel (Mobile-first fixed overlay) */}
-        {showPlaylist && (
-          <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800 border-t md:border-l border-gray-600 flex flex-col z-20 transition-transform duration-300 ease-in-out transform translate-y-0 md:translate-y-0">
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-white text-lg font-semibold">Video Playlist</h2>
-                <Button onClick={togglePlaylist} variant="ghost" size="sm" className="md:hidden">
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
-                </Button>
-              </div>
-              <div className="relative mb-4">
-                <input
-                  type="text"
-                  placeholder="Search videos..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-10 text-sm"
-                />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {filteredPlaylist.length === 0 ? (
-                <div className="text-gray-400 text-center py-8">
-                  <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p>No videos found</p>
-                  <p className="text-sm">Add YouTube URLs or try a different search term.</p>
+        {/* Panels Container */}
+        <div className={`
+          fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800
+          border-t md:border-l border-gray-700 shadow-xl
+          flex flex-col z-20 transition-transform duration-300 ease-in-out
+          ${(showPlaylist || showMap) ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
+          `}>
+          {/* Playlist Panel */}
+          {showPlaylist && (
+            <div className="flex flex-col h-full">
+              <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
+                <h2 className="text-lg font-semibold">Video Playlist ({playlist.length})</h2>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search videos..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-48 px-3 py-1 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-blue-500 focus:outline-none pl-8"
+                  />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 </div>
-              ) : (
-                <div className="space-y-3 p-4 pt-0">
-                  {filteredPlaylist.map((video) => (
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {filteredPlaylist.length === 0 ? (
+                  <div className="text-gray-400 text-center py-8">
+                    <List className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No videos found</p>
+                    <p className="text-sm">Add YouTube URLs or try a different search term.</p>
+                  </div>
+                ) : (
+                  filteredPlaylist.map((video) => (
                     <div
                       key={video.id}
-                      className={`bg-gray-700 rounded-lg p-3 cursor-move ${draggedItem?.id === video.id ? 'opacity-50 border-2 border-blue-500' : ''} ${currentSharedVideo === video.url ? 'border-2 border-green-500' : ''}`}
+                      className={`
+                        bg-gray-700/50 rounded-xl p-3 shadow-md
+                        flex items-center gap-4 cursor-grab
+                        active:cursor-grabbing transform transition-all duration-150
+                        ${draggedItem?.id === video.id ? 'opacity-50 scale-95 ring-2 ring-blue-500' : ''}
+                        ${currentSharedVideo === video.url ? 'border-l-4 border-green-500' : 'border-l-4 border-transparent'}
+                      `}
                       draggable
                       onDragStart={(e) => handleDragStart(e, video)}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, video)}
                       onDragEnd={handleDragEnd}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-medium text-sm leading-tight">{video.title}</h3>
-                        </div>
-                        <div className="flex-shrink-0 flex items-center gap-2 ml-4">
-                          {currentSharedVideo === video.url ? (
-                            <Button onClick={stopVideoSharing} variant="ghost" size="sm" title="Stop this video" disabled={isInitializing}>
-                              <X className="w-4 h-4 text-red-400" />
-                            </Button>
-                          ) : (
-                            <Button onClick={() => handleShareVideo(video.url)} variant="ghost" size="sm" title="Play this video now" disabled={isInitializing}>
-                              <Play className="w-4 h-4 text-green-400" />
-                            </Button>
-                          )}
-                          <Button onClick={() => removeFromPlaylist(video.id)} variant="ghost" size="sm" title="Remove from playlist" disabled={isInitializing}>
-                            <Trash2 className="w-4 h-4 text-red-400" />
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-sm leading-tight text-white">{video.title}</h3>
+                      </div>
+                      <div className="flex-shrink-0 flex items-center gap-2 ml-4">
+                        {currentSharedVideo === video.url ? (
+                          <Button onClick={stopVideoSharing} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Stop this video" disabled={isInitializing}>
+                            <X className="w-4 h-4" />
                           </Button>
-                        </div>
+                        ) : (
+                          <Button onClick={() => handleShareVideo(video.url)} variant="ghost" size="icon" className="text-green-400 hover:bg-green-400/20" title="Play this video now" disabled={isInitializing}>
+                            <Play className="w-4 h-4" />
+                          </Button>
+                        )}
+                        <Button onClick={() => removeFromPlaylist(video.id)} variant="ghost" size="icon" className="text-red-400 hover:bg-red-400/20" title="Remove from playlist" disabled={isInitializing}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Enhanced Free Map Panel (Mobile-first fixed overlay) */}
-        {showMap && (
-          <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-900 border-t md:border-l border-gray-600 flex flex-col z-20 transition-transform duration-300 ease-in-out transform translate-y-0 md:translate-y-0">
-            <EnhancedFreeMap />
-            <div className="absolute top-4 right-4 z-30">
-              <Button onClick={toggleMap} variant="ghost" size="sm" className="md:hidden bg-white/10 hover:bg-white/20">
-                <X className="w-5 h-5 text-white" />
-              </Button>
+          {/* Map Panel */}
+          {showMap && (
+            <div className="flex flex-col h-full">
+              <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
+                <h2 className="text-lg font-semibold">Live Map</h2>
+              </div>
+              <div className="flex-1 min-h-0">
+                <EnhancedFreeMap />
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* JWT Modal */}
       {showJwtModal && (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md border border-gray-700">
+        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-white text-xl font-semibold">Enter JWT Token</h2>
-              <Button onClick={toggleJwtModal} variant="ghost" size="sm">
-                <X className="w-5 h-5 text-gray-400" />
+              <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
+                <X className="w-5 h-5" />
               </Button>
             </div>
             <p className="text-sm text-gray-400 mb-4">
@@ -724,11 +722,11 @@ function App() {
               placeholder="Paste your JWT token here..."
               value={jwtToken}
               onChange={(e) => setJwtToken(e.target.value)}
-              className="w-full px-4 py-2 rounded bg-gray-700 text-white placeholder-gray-500 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+              className="w-full px-4 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-500 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
             />
-            <div className="mt-4 flex justify-end">
+            <div className="mt-6 flex justify-end">
               <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
-                Apply JWT and Refresh
+                Apply & Refresh
               </Button>
             </div>
           </div>
