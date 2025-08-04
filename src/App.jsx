@@ -702,7 +702,7 @@ function App() {
             {showMap && (
               <div className="flex flex-col h-full">
                 <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
-                  <h2 className="text-lg font-semibold">Map</h2>
+                  <h2 className="text-lg font-semibold">Map Services</h2>
                 </div>
                 <div className="flex-1 min-h-0">
                   <EnhancedFreeMap />
