@@ -359,7 +359,9 @@ const EnhancedFreeMap = () => {
         ))
       );
 
-      const placesWithCoords = uniqueResults.map(place => ({
+      const placesWithCoords = uniqueResults
+        .filter(place => place.name !== selectedPlace.name) // Filter out the searched location itself
+        .map(place => ({
         name: place.name,
         formatted_address: place.vicinity,
         lat: place.geometry.location.lat(),
@@ -763,7 +765,7 @@ const EnhancedFreeMap = () => {
                 }}
                 options={{
                   icon: {
-                    url: `http://maps.google.com/mapfiles/ms/icons/blue-dot.png`,
+                    url: `http://maps.google.com/mapfiles/ms/icons/green-dot.png`,
                   },
                 }}
                 onClick={() => handleNearbyMarkerClick(place)}
