@@ -13,7 +13,7 @@ import { Button } from './ui/button';
 
 // IMPORTANT: Replace with your actual Google Maps API Key.
 // You can get one here: https://developers.google.com/maps/documentation/javascript/get-api-key
-const GOOGLE_MAPS_API_KEY = 'AIzaSyD_lSowigFjpFIOvqnK1dY7Nksqq7089fs';
+const Maps_API_KEY = 'AIzaSyD_lSowigFjpFIOvqnK1dY7Nksqq7089fs';
 
 const libraries = ['places'];
 
@@ -74,7 +74,7 @@ const EnhancedFreeMap = () => {
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    googleMapsApiKey: Maps_API_KEY,
     libraries,
   });
 
@@ -148,38 +148,55 @@ const EnhancedFreeMap = () => {
 
   // Function to check and parse if a string is a lat, lng coordinate
   const isLatLng = (query) => {
-    const latLngRegex = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
-    const match = query.match(latLngRegex);
-    if (!match) return null;
+    // A more robust check to ensure the input is a complete coordinate string.
+    const parts = query.split(',').map(part => part.trim());
 
-    const lat = parseFloat(match[1]);
-    const lng = parseFloat(match[2]);
+    if (parts.length !== 2) {
+      return null;
+    }
 
-    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    const lat = parseFloat(parts[0]);
+    const lng = parseFloat(parts[1]);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return null;
+    }
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return null;
     }
 
     return { lat, lng };
   };
 
-  const handleSearchInputChange = (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-
+  const performSearch = (query) => {
     const latLng = isLatLng(query);
     if (latLng) {
       setCenter(latLng);
       setZoom(15);
       setSelectedPlace({
-        name: `Lat: ${latLng.lat}, Lng: ${latLng.lng}`,
-        formatted_address: `Coordinates: ${latLng.lat}, ${latLng.lng}`,
+        name: `Coordinates`,
+        formatted_address: `Lat: ${latLng.lat}, Lng: ${latLng.lng}`,
         ...latLng
       });
       setSearchResults([]);
       setShowSearchResults(false);
-      return;
+    } else if (query.length > 2) {
+      getPlacePredictions(query, (predictions) => {
+        setSearchResults(predictions);
+        setShowSearchResults(true);
+      });
+    } else {
+      setSearchResults([]);
+      setShowSearchResults(false);
     }
+  };
 
+  const handleSearchInputChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+
+    // Continue with regular place predictions while typing
     if (query.length > 2) {
       getPlacePredictions(query, (predictions) => {
         setSearchResults(predictions);
@@ -188,6 +205,23 @@ const EnhancedFreeMap = () => {
     } else {
       setSearchResults([]);
       setShowSearchResults(false);
+    }
+  };
+
+  const handleSearchInputBlur = () => {
+    // We now only process a lat/lng coordinate when the user has left the input field.
+    performSearch(searchQuery);
+
+    // Hide search suggestions after a small delay
+    // This allows a user to click on a suggestion before it disappears
+    setTimeout(() => setShowSearchResults(false), 200);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      performSearch(searchQuery);
+      searchInputRef.current.blur(); // Blur the input to hide suggestions
     }
   };
 
@@ -211,6 +245,7 @@ const EnhancedFreeMap = () => {
         const location = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
         setCenter(location);
         setZoom(15);
+        // Correctly set the selectedPlace state with all necessary information
         setSelectedPlace({
           name: place.name,
           formatted_address: place.formatted_address,
@@ -642,7 +677,8 @@ const EnhancedFreeMap = () => {
                     value={searchQuery}
                     onChange={handleSearchInputChange}
                     onFocus={() => setShowSearchResults(searchQuery.length > 2)}
-                    onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
+                    onBlur={handleSearchInputBlur}
+                    onKeyDown={handleKeyDown}
                     className="w-full pl-10 pr-10 py-2 rounded-full bg-white text-gray-800 placeholder-gray-400 border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors shadow-lg"
                 />
                 {searchQuery && (
@@ -673,7 +709,6 @@ const EnhancedFreeMap = () => {
     );
   };
 
-
   return (
     <div className="relative w-full h-full bg-white">
       <div className={`absolute top-0 left-0 bottom-0 z-10 p-4 transition-all duration-300 ease-in-out bg-white overflow-y-auto custom-scrollbar shadow-lg ${isPanelOpen ? 'w-full md:w-96' : 'w-0'}`}>
@@ -701,23 +736,42 @@ const EnhancedFreeMap = () => {
             streetViewControl: true,
           }}
         >
-          {nearbyPlaces.map((place, index) => (
+          {/* Main marker for the searched location */}
+          {selectedPlace && (
             <Marker
-              key={index}
-              position={{ lat: place.lat, lng: place.lng }}
-              label={{
-                  text: place.isPrimary ? 'Selected Site' : `${index}`,
-                  fontWeight: 'bold',
-                  color: '#FFFFFF'
-              }}
+              position={{ lat: selectedPlace.lat, lng: selectedPlace.lng }}
               options={{
                 icon: {
-                  url: place.isPrimary ? `https://maps.google.com/mapfiles/ms/icons/blue-dot.png` : `https://maps.google.com/mapfiles/ms/icons/red-dot.png`,
+                  url: `http://maps.google.com/mapfiles/ms/icons/red-dot.png`,
+                  scaledSize: new window.google.maps.Size(40, 40),
                 },
               }}
-              onClick={() => handleNearbyMarkerClick(place)}
+              onClick={() => handleNearbyMarkerClick(selectedPlace)}
             />
+          )}
+
+          {/* Markers for nearby places */}
+          {nearbyPlaces.map((place, index) => (
+            !place.isPrimary && (
+              <Marker
+                key={index}
+                position={{ lat: place.lat, lng: place.lng }}
+                label={{
+                    text: `${index}`,
+                    fontWeight: 'bold',
+                    color: '#FFFFFF'
+                }}
+                options={{
+                  icon: {
+                    url: `http://maps.google.com/mapfiles/ms/icons/blue-dot.png`,
+                  },
+                }}
+                onClick={() => handleNearbyMarkerClick(place)}
+              />
+            )
           ))}
+          {/* This is a simple directions renderer */}
+          <DirectionsRenderer directions={routeData} />
         </GoogleMap>
       </div>
     </div>
