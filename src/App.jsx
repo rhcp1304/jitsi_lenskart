@@ -557,8 +557,7 @@ function App() {
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            {/* Map pin icon is a vibrant red for mobile */}
-            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-600 hover:text-red-500" title="Show Map">
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
           </div>
@@ -579,7 +578,7 @@ function App() {
             />
             {!isVideoSharing ? (
               // Updated UI: More vibrant blue for the Share button
-              <Button onClick={shareVideoDirectly} className="bg-blue-500 hover:bg-blue-600 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+              <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
             ) : (
@@ -587,8 +586,8 @@ function App() {
                 Stop
               </Button>
             )}
-            {/* Plus button is a bright green */}
-            <Button onClick={addToPlaylist} className="bg-green-500 hover:bg-green-600 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+            {/* Updated UI: Plus button is now a vibrant green */}
+            <Button onClick={addToPlaylist} className="bg-green-600 hover:bg-green-700 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
           </div>
@@ -600,8 +599,8 @@ function App() {
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            {/* Map pin icon is a vibrant red for desktop */}
-            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-600 hover:bg-gray-700 hover:text-red-500" title="Show Map">
+            {/* Updated UI: Map pin icon is now a vibrant red */}
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
           </div>
@@ -703,7 +702,7 @@ function App() {
             {showMap && (
               <div className="flex flex-col h-full">
                 <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
-                  <h2 className="text-lg font-semibold">Live Map</h2>
+                  <h2 className="text-lg font-semibold">Map</h2>
                 </div>
                 <div className="flex-1 min-h-0">
                   <EnhancedFreeMap />
