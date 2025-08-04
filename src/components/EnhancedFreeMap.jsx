@@ -101,20 +101,20 @@ const EnhancedFreeMap = () => {
     }
     const directionsRendererInstance = new window.google.maps.DirectionsRenderer({
       polylineOptions: {
-        strokeColor: '#5a67d8',
-        strokeWeight: 5,
-        strokeOpacity: 0.8
-      }
+        strokeColor: '#3b82f6', // A brighter blue
+        strokeWeight: 6,
+        strokeOpacity: 0.9
+      },
+      // Ensure the renderer doesn't try to manage the viewport itself
+      preserveViewport: true
     });
     directionsRendererInstance.setMap(map);
     setDirectionsRenderer(directionsRendererInstance);
 
-    // Add event listener for Street View close
     const streetView = map.getStreetView();
     streetView.addListener('visible_changed', () => {
       setIsStreetViewActive(streetView.getVisible());
     });
-
   }, []);
 
   const getPlacePredictions = useCallback((query, callback) => {
@@ -298,22 +298,27 @@ const EnhancedFreeMap = () => {
         travelMode: 'DRIVING'
       }, (response, status) => {
         setIsCalculatingRoute(false);
-        if (status === 'OK') {
+        if (status === 'OK' && response.routes.length > 0) {
           directionsRenderer.setDirections(response);
           setRouteData(response.routes[0]);
-          if (mapRef.current) {
-            mapRef.current.fitBounds(response.routes[0].bounds);
-          }
           setSelectedPlace(null);
+          // Manually fit the map bounds to the route with padding for a tighter view
+          if (mapRef.current && response.routes[0].bounds) {
+              mapRef.current.fitBounds(response.routes[0].bounds, { padding: 50 });
+          }
         } else {
           setRouteError('Unable to calculate route.');
           console.error('Directions request failed:', status);
+          directionsRenderer.setDirections({ routes: [] }); // Clear old directions on error
         }
       });
     } catch (error) {
       setIsCalculatingRoute(false);
       setRouteError(error.message);
       console.error('Directions failed:', error);
+      if (directionsRenderer) {
+          directionsRenderer.setDirections({ routes: [] }); // Clear old directions on error
+      }
     }
   };
 
@@ -413,12 +418,10 @@ const EnhancedFreeMap = () => {
     setActiveAnalysis(null);
     setIsStreetViewActive(false);
     if (directionsRenderer) {
-      directionsRenderer.setDirections({ routes: [] });
+      directionsRenderer.setDirections({ routes: [] }); // Clear old directions
     }
-    // Reset to a default center
     setCenter({ lat: 12.9716, lng: 77.5946 });
     setZoom(13);
-    // Hide Street View if active
     if (mapRef.current) {
         const streetView = mapRef.current.getStreetView();
         streetView.setVisible(false);
@@ -480,14 +483,11 @@ const EnhancedFreeMap = () => {
 
   const getPanelContent = () => {
     if (routeData && routeData !== 'form') {
+        const leg = routeData.legs[0];
         return (
             <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-200">
-                    <Button onClick={() => {
-                        directionsRenderer.setDirections({ routes: [] });
-                        setRouteData(null);
-                        setSelectedPlace(null);
-                    }} variant="ghost" size="icon" className="text-gray-600 hover:bg-gray-100">
+                    <Button onClick={clearAllState} variant="ghost" size="icon" className="text-gray-600 hover:bg-gray-100">
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
                     <h3 className="text-xl font-bold text-gray-800 text-center flex-1">Your Route</h3>
@@ -495,32 +495,32 @@ const EnhancedFreeMap = () => {
                 </div>
                 <div className="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
                     <MapPin className="w-5 h-5 text-blue-500" />
-                    <p className="text-sm text-gray-800 truncate">{routeData.legs[0].start_address}</p>
+                    <p className="text-sm text-gray-800 truncate">{leg.start_address}</p>
                 </div>
                 <div className="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
                     <MapPin className="w-5 h-5 text-red-500" />
-                    <p className="text-sm text-gray-800 truncate">{routeData.legs[0].end_address}</p>
+                    <p className="text-sm text-gray-800 truncate">{leg.end_address}</p>
                 </div>
                 <div className="flex items-center justify-between mt-2 p-3 bg-gray-100 rounded-lg">
                     <div className="flex items-center gap-2">
                         <Route className="w-5 h-5 text-green-500" />
                         <span className="text-sm text-gray-600">Distance:</span>
                     </div>
-                    <span className="font-semibold text-gray-800">{routeData.legs[0].distance.text}</span>
+                    <span className="font-semibold text-gray-800">{leg.distance.text}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-100 rounded-lg">
                     <div className="flex items-center gap-2">
                         <Loader2 className="w-5 h-5 text-yellow-500" />
                         <span className="text-sm text-gray-600">Duration:</span>
                     </div>
-                    <span className="font-semibold text-gray-800">{routeData.legs[0].duration.text}</span>
+                    <span className="font-semibold text-gray-800">{leg.duration.text}</span>
                 </div>
 
                 <div className="mt-4">
                     <h4 className="text-lg font-bold text-gray-800 mb-2">Navigation Steps</h4>
                     <div className="bg-gray-100 rounded-lg p-4 custom-scrollbar max-h-96 overflow-y-auto">
                         <ol className="list-inside space-y-3">
-                            {routeData.legs[0].steps.map((step, index) => (
+                            {leg.steps.map((step, index) => (
                                 <li key={index}
                                     onClick={() => handleStepClick(step, index)}
                                     className={`p-3 rounded-lg cursor-pointer transition-colors ${
@@ -549,7 +549,12 @@ const EnhancedFreeMap = () => {
         return (
             <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-200">
-                    <Button onClick={() => setRouteData(null)} variant="ghost" size="icon" className="text-gray-600 hover:bg-gray-100">
+                    <Button onClick={() => {
+                      setRouteData(null);
+                      if (directionsRenderer) {
+                          directionsRenderer.setDirections({ routes: [] });
+                      }
+                    }} variant="ghost" size="icon" className="text-gray-600 hover:bg-gray-100">
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
                     <h3 className="text-xl font-bold text-gray-800 text-center flex-1">Directions</h3>
@@ -801,8 +806,17 @@ const EnhancedFreeMap = () => {
               />
             )
           ))}
-          {/* This is a simple directions renderer */}
-          <DirectionsRenderer directions={routeData} />
+          <DirectionsRenderer
+              directions={routeData}
+              options={{
+                  polylineOptions: {
+                      strokeColor: '#3b82f6', // A brighter blue
+                      strokeWeight: 6,
+                      strokeOpacity: 0.9
+                  },
+                  preserveViewport: true // Preserve viewport is kept here as a safeguard, but the manual fitBounds should take precedence.
+              }}
+          />
         </GoogleMap>
       </div>
     </div>
