@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown,
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -25,11 +25,19 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
   const muteIntervalRef = useRef(null);
+
+  // Helper function to show a custom error modal instead of alert()
+  const showError = (message) => {
+    setErrorMessage(message);
+    setShowErrorModal(true);
+  };
 
   const generateParticipantId = () => {
     return `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -406,12 +414,12 @@ function App() {
         forceAudioMute();
       } catch (error) {
         console.error('Error sharing video:', error);
-        alert('Failed to share video. Please make sure you have joined the meeting.');
+        showError('Failed to share video. Please make sure you have joined the meeting.');
       }
     } else if (!jitsiApi) {
-      alert('Please wait for the meeting to load and join first');
+      showError('Please wait for the meeting to load and join first');
     } else {
-      alert('Please enter a YouTube URL');
+      showError('Please enter a YouTube URL');
     }
   };
 
@@ -458,7 +466,7 @@ function App() {
         setIsLoadingVideoTitle(false);
       }
     } else {
-      alert('Please enter a valid YouTube URL');
+      showError('Please enter a valid YouTube URL');
     }
   };
 
@@ -481,14 +489,14 @@ function App() {
           setCurrentSharedVideo(url);
           forceAudioMute();
         } else {
-          alert('Could not extract video ID from URL');
+          showError('Could not extract video ID from URL');
         }
       } catch (error) {
         console.error('Error sharing video from playlist:', error);
-        alert('Failed to share video. Please make sure you have joined the meeting.');
+        showError('Failed to share video. Please make sure you have joined the meeting.');
       }
     } else {
-      alert('Please wait for the meeting to load and join first');
+      showError('Please wait for the meeting to load and join first');
     }
   };
 
@@ -543,13 +551,14 @@ function App() {
         <div className="flex items-center justify-between w-full md:w-auto mb-4 md:mb-0">
           <img src={LenskartLogo} alt="Lenskart Logo" className="h-12 w-24" />
           <div className="flex items-center md:hidden gap-2">
-            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title="Configure JWT">
+            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-orange-500 hover:text-orange-400" title="Configure JWT">
               <Key className="w-5 h-5" />
             </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title="Show Map">
+            {/* Map pin icon is a vibrant red for mobile */}
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-600 hover:text-red-500" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
           </div>
@@ -563,12 +572,14 @@ function App() {
               placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-800 text-sm placeholder-gray-500 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              // Updated UI: Brighter background, placeholder, and white focus border
+              className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-white focus:ring-1 focus:ring-white transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
-              <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+              // Updated UI: More vibrant blue for the Share button
+              <Button onClick={shareVideoDirectly} className="bg-blue-500 hover:bg-blue-600 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
             ) : (
@@ -576,18 +587,21 @@ function App() {
                 Stop
               </Button>
             )}
-            <Button onClick={addToPlaylist} variant="secondary" className="bg-gray-700 hover:bg-gray-600 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
+            {/* Plus button is a bright green */}
+            <Button onClick={addToPlaylist} className="bg-green-500 hover:bg-green-600 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
           </div>
           <div className="hidden md:flex items-center gap-2">
-            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title="Configure JWT">
+            {/* JWT key icon is orange */}
+            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-orange-500 hover:bg-gray-700 hover:text-orange-400" title="Configure JWT">
               <Key className="w-5 h-5" />
             </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title="Show Map">
+            {/* Map pin icon is a vibrant red for desktop */}
+            <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-600 hover:bg-gray-700 hover:text-red-500" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
           </div>
@@ -723,6 +737,31 @@ function App() {
             <div className="mt-6 flex justify-end">
               <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
                 Apply & Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Error Modal */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center">
+                <AlertCircle className="w-6 h-6 text-red-500 mr-3" />
+                <h2 className="text-white text-xl font-semibold">Error</h2>
+              </div>
+              <Button onClick={() => setShowErrorModal(false)} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <p className="text-sm text-gray-400 mb-4">
+              {errorMessage}
+            </p>
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => setShowErrorModal(false)} className="bg-red-600 hover:bg-red-700 text-white">
+                Close
               </Button>
             </div>
           </div>

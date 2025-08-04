@@ -515,33 +515,6 @@ const EnhancedFreeMap = () => {
                     </div>
                     <span className="font-semibold text-gray-800">{leg.duration.text}</span>
                 </div>
-
-                <div className="mt-4">
-                    <h4 className="text-lg font-bold text-gray-800 mb-2">Navigation Steps</h4>
-                    <div className="bg-gray-100 rounded-lg p-4 custom-scrollbar max-h-96 overflow-y-auto">
-                        <ol className="list-inside space-y-3">
-                            {leg.steps.map((step, index) => (
-                                <li key={index}
-                                    onClick={() => handleStepClick(step, index)}
-                                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                                      highlightedStepIndex === index ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-gray-200 text-gray-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="font-bold text-lg">{index + 1}.</span>
-                                        <div className="flex-1">
-                                            <div
-                                                dangerouslySetInnerHTML={{ __html: step.instructions }}
-                                                className="text-sm"
-                                            />
-                                            <p className="text-xs text-gray-500 mt-1">{step.distance.text}</p>
-                                        </div>
-                                    </div>
-                                </li>
-                            ))}
-                        </ol>
-                    </div>
-                </div>
             </div>
         );
     }
@@ -573,7 +546,7 @@ const EnhancedFreeMap = () => {
                       className="w-full p-2 rounded-lg bg-white text-gray-800 placeholder-gray-400 border border-gray-300 focus:border-blue-500 focus:outline-none"
                     />
                     {showFromSuggestions && fromLocationSuggestions.length > 0 && (
-                      <div className="absolute top-full left-0 w-full mt-1 bg-white rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto custom-scrollbar">
+                      <div className="absolute top-[calc(100%+0.5rem)] left-0 w-full z-20 bg-white rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto custom-scrollbar">
                         {fromLocationSuggestions.map((result, index) => (
                           <div
                             key={result.place_id || index}
@@ -814,6 +787,8 @@ const EnhancedFreeMap = () => {
                       strokeWeight: 6,
                       strokeOpacity: 0.9
                   },
+                  suppressMarkers: true,
+                  suppressInfoWindows: true,
                   preserveViewport: true // Preserve viewport is kept here as a safeguard, but the manual fitBounds should take precedence.
               }}
           />
