@@ -7,7 +7,8 @@ import {
 } from '@react-google-maps/api';
 import {
   Search, X, MapPin, Route, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
-  Store, ShoppingCart, Bus, Car, Hospital, Landmark, Utensils, Camera, Ruler
+  Store, ShoppingCart, Bus, Car, Hospital, Landmark, Utensils, Camera, Ruler,
+  ListCollapse, List, ChevronsDown, ChevronsUp
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -71,6 +72,10 @@ const EnhancedFreeMap = () => {
   const [center, setCenter] = useState({ lat: 12.9716, lng: 77.5946 });
   const [zoom, setZoom] = useState(13);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+
+  // New state for collapsible sections
+  const [isAnalysisOptionsOpen, setIsAnalysisOptionsOpen] = useState(true);
+  const [isNearbyListOpen, setIsNearbyListOpen] = useState(true);
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
@@ -325,14 +330,15 @@ const EnhancedFreeMap = () => {
       lat: selectedPlace.lat,
       lng: selectedPlace.lng,
       isPrimary: true,
-      distance: 0 // Distance is 0 for the primary site
+      distance: 0, // Distance is 0 for the primary site
+      placeId: 'primary-site'
     }];
 
     const searchPromises = placeTypes.map(placeType => {
       return new Promise((resolve) => {
         placesServiceRef.current.nearbySearch({
           location: { lat: selectedPlace.lat, lng: selectedPlace.lng },
-          radius: '1000',
+          radius: '5000', // Increased radius to 5000 meters to show more results
           type: placeType,
           keyword: keyword,
         }, (results, status) => {
@@ -360,13 +366,15 @@ const EnhancedFreeMap = () => {
       );
 
       const placesWithCoords = uniqueResults
-        .filter(place => place.name !== selectedPlace.name) // Filter out the searched location itself
+        // This is the new, crucial filtering step to ensure lat/lng exists
+        .filter(place => place.name !== selectedPlace.name && place.geometry && place.geometry.location)
         .map(place => ({
         name: place.name,
         formatted_address: place.vicinity,
         lat: place.geometry.location.lat(),
         lng: place.geometry.location.lng(),
         placeType: place.types[0],
+        placeId: place.place_id,
         distance: calculateDistance(
           selectedPlace.lat,
           selectedPlace.lng,
@@ -617,19 +625,31 @@ const EnhancedFreeMap = () => {
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-gray-200">
-                    <h4 className="text-lg font-bold text-gray-800 mb-2">Site Analysis</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                        {siteAnalysisButtons.map((button) => (
-                          <Button
-                            key={button.label}
-                            onClick={() => findNearbyPlaces(button.placeType, button.keyword, button.label, button.strictKeywordMatch)}
-                            className="flex items-center justify-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 transition-colors"
-                            disabled={isFindingPlaces}
-                          >
-                            <button.icon className="w-4 h-4" />
-                            {button.label}
-                          </Button>
-                        ))}
+                    <div className="flex justify-between items-center mb-2 cursor-pointer" onClick={() => setIsAnalysisOptionsOpen(!isAnalysisOptionsOpen)}>
+                        <h4 className="text-lg font-bold text-gray-800">Site Analysis</h4>
+                        <Button variant="ghost" size="icon" className="text-gray-500 hover:bg-gray-200">
+                            {isAnalysisOptionsOpen ? <ChevronsUp className="w-4 h-4" /> : <ChevronsDown className="w-4 h-4" />}
+                        </Button>
+                    </div>
+
+                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isAnalysisOptionsOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                        <div className="grid grid-cols-2 gap-2">
+                            {siteAnalysisButtons.map((button) => (
+                              <Button
+                                key={button.label}
+                                onClick={() => {
+                                  findNearbyPlaces(button.placeType, button.keyword, button.label, button.strictKeywordMatch);
+                                  setIsAnalysisOptionsOpen(false); // Collapse options after selection
+                                  setIsNearbyListOpen(true); // Open the list when a button is clicked
+                                }}
+                                className="flex items-center justify-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 transition-colors"
+                                disabled={isFindingPlaces}
+                              >
+                                <button.icon className="w-4 h-4" />
+                                {button.label}
+                              </Button>
+                            ))}
+                        </div>
                     </div>
 
                     {isFindingPlaces && (
@@ -641,26 +661,35 @@ const EnhancedFreeMap = () => {
 
                     {nearbyPlaces.length > 1 && (
                         <div className="mt-4">
-                            <h5 className="text-md font-semibold text-gray-700 mb-2">Nearby {activeAnalysis}</h5>
-                            <div className="bg-gray-100 rounded-lg p-2 max-h-40 overflow-y-auto custom-scrollbar">
-                                <ul className="space-y-1">
-                                    {nearbyPlaces.slice(1).map((place, index) => (
-                                        <li
-                                          key={index}
-                                          onClick={() => handleNearbyMarkerClick(place)}
-                                          className="p-2 cursor-pointer hover:bg-gray-200 rounded-md transition-colors text-sm"
-                                        >
-                                            <div className="flex justify-between items-center">
-                                                <p className="font-medium text-gray-800 truncate">{place.name}</p>
-                                                <div className="flex items-center gap-1 text-gray-500">
-                                                    <Ruler className="w-3 h-3" />
-                                                    <span className="text-xs">{place.distance} km</span>
-                                                </div>
-                                            </div>
-                                            <p className="text-xs text-gray-500 truncate">{place.formatted_address}</p>
-                                        </li>
-                                    ))}
-                                </ul>
+                            <div className="flex justify-between items-center mb-2 cursor-pointer" onClick={() => setIsNearbyListOpen(!isNearbyListOpen)}>
+                                <h5 className="text-md font-semibold text-gray-700">Nearby {activeAnalysis}</h5>
+                                <Button variant="ghost" size="icon" className="text-gray-500 hover:bg-gray-200">
+                                  {isNearbyListOpen ? <ListCollapse className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                                </Button>
+                            </div>
+                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isNearbyListOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                              <div className="bg-gray-100 rounded-lg p-2 overflow-y-auto custom-scrollbar">
+                                  <ul className="space-y-1">
+                                      {nearbyPlaces.slice(1).map((place, index) => (
+                                          <li
+                                            key={place.placeId}
+                                            onClick={() => handleNearbyMarkerClick(place)}
+                                            className="p-2 cursor-pointer hover:bg-gray-200 rounded-md transition-colors text-sm"
+                                          >
+                                              <div className="flex justify-between items-center">
+                                                  <p className="font-medium text-gray-800 truncate">
+                                                    <span className="font-bold text-gray-500 mr-2">{index + 1}.</span>{place.name}
+                                                  </p>
+                                                  <div className="flex items-center gap-1 text-gray-500">
+                                                      <Ruler className="w-3 h-3" />
+                                                      <span className="text-xs">{place.distance} km</span>
+                                                  </div>
+                                              </div>
+                                              <p className="text-xs text-gray-500 truncate">{place.formatted_address}</p>
+                                          </li>
+                                      ))}
+                                  </ul>
+                              </div>
                             </div>
                         </div>
                     )}
@@ -753,13 +782,13 @@ const EnhancedFreeMap = () => {
           )}
 
           {/* Markers for nearby places */}
-          {nearbyPlaces.map((place, index) => (
+          {nearbyPlaces.slice(1).map((place, index) => (
             !place.isPrimary && (
               <Marker
-                key={index}
+                key={place.placeId}
                 position={{ lat: place.lat, lng: place.lng }}
                 label={{
-                    text: `${index}`,
+                    text: `${index + 1}`,
                     fontWeight: 'bold',
                     color: '#FFFFFF'
                 }}
