@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
-import LenskartLogo from './logo.png'; // Import the logo
+import LenskartLogo from './logo.png';
 
 function App() {
   const [showMap, setShowMap] = useState(false);
@@ -33,7 +33,6 @@ function App() {
   const syncIntervalRef = useRef(null);
   const muteIntervalRef = useRef(null);
 
-  // Helper function to show a custom error modal instead of alert()
   const showError = (message) => {
     setErrorMessage(message);
     setShowErrorModal(true);
@@ -241,7 +240,7 @@ function App() {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
-        roomName: 'vpaas-magic-cookie-de711315bad1401c954f2d4d5ffdcd8f/property-approval-meeting',
+        roomName: 'vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/property-approval-meeting',
         parentNode: jitsiContainerRef.current,
         width: '100%',
         height: '100%',
@@ -255,7 +254,6 @@ function App() {
           enableDataChannels: true,
           enableP2P: true,
           p2p: { enabled: true },
-          // Add the new configuration here
           disableAP: true,
         },
         interfaceConfigOverwrite: {
