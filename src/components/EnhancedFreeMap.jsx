@@ -21,14 +21,46 @@ const libraries = ['places'];
 // Configuration for site analysis buttons
 const siteAnalysisButtons = [
   // This button searches for any general optical stores, using 'eyewear' as a keyword hint
-  { label: 'Competitors', icon: Store, placeType: ['optical store', 'optician'], keyword: 'eyewear', category: 'competitors' },
-  // This button is specifically for Lenskart stores, with a strict keyword match
-  { label: 'Lenskart Stores', icon: Store, placeType: ['optical store'], keyword: 'Lenskart', category: 'competitors', strictKeywordMatch: true },
-  { label: 'Shopping Malls', icon: ShoppingCart, placeType: ['shopping_mall'], category: 'complementary' },
-  { label: 'Hospitals', icon: Hospital, placeType: ['hospital'], category: 'complementary' },
-  { label: 'Restaurants', icon: Utensils, placeType: ['restaurant'], category: 'complementary' },
-  { label: 'Bus Stops', icon: Bus, placeType: ['bus_station'], category: 'accessibility' },
-  { label: 'Parking', icon: Car, placeType: ['parking'], category: 'accessibility' },
+  { label: 'Competitors', icon: Store, placeType: ['optical store', 'optician'], keyword: 'eyewear', category: 'competitors', radius: 500 },
+  // This button is specifically for Lenskart stores, with a strict keyword match and a larger radius
+  { label: 'Lenskart Stores', icon: Store, placeType: ['optical store'], keyword: 'Lenskart', category: 'competitors', strictKeywordMatch: true, radius: 5000 },
+  { label: 'Shopping Malls', icon: ShoppingCart, placeType: ['shopping_mall'], category: 'complementary', radius: 500 },
+  { label: 'Hospitals', icon: Hospital, placeType: ['hospital'], category: 'complementary', radius: 500 },
+  // Consolidated button for all complementary brands, including the newly added ones
+  {
+    label: 'Complementary Brands',
+    icon: ShoppingCart,
+    placeType: [
+      'clothing_store',
+      'shoe_store',
+      'supermarket',
+      'pharmacy',
+      'electronics_store',
+      'restaurant',
+    ],
+    keywords: [
+      'Peter England',
+      'Jockey',
+      'Bata',
+      'Skechers',
+      'Reliance Smart',
+      'Apollo Pharmacy',
+      'Reliance Digital',
+      'Zudio',
+      'Go colors',
+      'Spykar',
+      'Dominos',
+      'KFC',
+      'Pizza Hut',
+      'Croma',
+    ],
+    category: 'complementary',
+    strictKeywordMatch: true,
+    radius: 500,
+  },
+  { label: 'Bus Stops', icon: Bus, placeType: ['bus_station'], category: 'accessibility', radius: 500 },
+  { label: 'Parking', icon: Car, placeType: ['parking'], category: 'accessibility', radius: 500 },
+  { label: 'Restaurants', icon: Utensils, placeType: ['restaurant'], category: 'complementary', radius: 500 },
 ];
 
 // Helper function to calculate distance between two points using the Haversine formula
@@ -322,7 +354,7 @@ const EnhancedFreeMap = () => {
     }
   };
 
-  const findNearbyPlaces = async (placeTypes, keyword, category, strictKeywordMatch) => {
+  const findNearbyPlaces = async (placeTypes, keyword, category, strictKeywordMatch, keywords, radius = 5000) => {
     if (!selectedPlace || !placesServiceRef.current) return;
 
     setIsFindingPlaces(true);
@@ -339,25 +371,31 @@ const EnhancedFreeMap = () => {
       placeId: 'primary-site'
     }];
 
-    const searchPromises = placeTypes.map(placeType => {
-      return new Promise((resolve) => {
-        placesServiceRef.current.nearbySearch({
-          location: { lat: selectedPlace.lat, lng: selectedPlace.lng },
-          radius: '5000', // Increased radius to 5000 meters to show more results
-          type: placeType,
-          keyword: keyword,
-        }, (results, status) => {
-          if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-            // Apply strict filtering if requested
-            const filteredResults = strictKeywordMatch
-              ? results.filter(place => place.name.toLowerCase().includes(keyword.toLowerCase()))
-              : results;
-            resolve(filteredResults);
-          } else {
-            console.warn(`Nearby search for type '${placeType}' failed with status: ${status}`);
-            resolve([]);
-          }
-        });
+    // Determine the list of keywords to search for
+    const searchKeywords = keywords || [keyword];
+
+    const searchPromises = [];
+    placeTypes.forEach(placeType => {
+      searchKeywords.forEach(searchKeyword => {
+        searchPromises.push(new Promise((resolve) => {
+          placesServiceRef.current.nearbySearch({
+            location: { lat: selectedPlace.lat, lng: selectedPlace.lng },
+            radius: radius, // Use the passed radius here
+            type: placeType,
+            keyword: searchKeyword,
+          }, (results, status) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
+              // Apply strict filtering if requested
+              const filteredResults = strictKeywordMatch
+                ? results.filter(place => place.name.toLowerCase().includes(searchKeyword.toLowerCase()))
+                : results;
+              resolve(filteredResults);
+            } else {
+              console.warn(`Nearby search for type '${placeType}' with keyword '${searchKeyword}' failed with status: ${status}`);
+              resolve([]);
+            }
+          });
+        }));
       });
     });
 
@@ -616,7 +654,7 @@ const EnhancedFreeMap = () => {
                               <Button
                                 key={button.label}
                                 onClick={() => {
-                                  findNearbyPlaces(button.placeType, button.keyword, button.label, button.strictKeywordMatch);
+                                  findNearbyPlaces(button.placeType, button.keyword, button.label, button.strictKeywordMatch, button.keywords, button.radius);
                                   setIsAnalysisOptionsOpen(false); // Collapse options after selection
                                   setIsNearbyListOpen(true); // Open the list when a button is clicked
                                 }}
