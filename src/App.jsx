@@ -254,7 +254,7 @@ function App() {
           enableDataChannels: true,
           enableP2P: true,
           p2p: { enabled: true },
-          disableAP: true,
+          disableAP: false,
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
