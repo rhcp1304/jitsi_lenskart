@@ -279,7 +279,7 @@ function App() {
       }
 
 //       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
-      const api = new window.JitsiMeetExternalAPI('nso-meeting.duckdns.org', config);
+      const api = new window.JitsiMeetExternalAPI('35.244.9.201', config);
 
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
