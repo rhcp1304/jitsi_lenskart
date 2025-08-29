@@ -366,7 +366,7 @@ function App() {
 
   const initializeJitsiOnLoad = () => {
 //     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
-     const jitsiScriptUrl = 'https://nso-meeting.duckdns.org/external_api.min.js';
+     const jitsiScriptUrl = 'https://35.244.9.201/external_api.min.js';
 
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
     if (!existingScript) {
