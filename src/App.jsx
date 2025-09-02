@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle,
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle, NotepadText
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -27,6 +27,8 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [timestamps, setTimestamps] = useState([]); // New state for timestamps
+  const [showTimestampModal, setShowTimestampModal] = useState(false); // New state for timestamp modal
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -279,8 +281,6 @@ function App() {
       }
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
-//       const api = new window.JitsiMeetExternalAPI('35.244.9.201', config);
-
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
@@ -366,7 +366,6 @@ function App() {
 
   const initializeJitsiOnLoad = () => {
     const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
-//      const jitsiScriptUrl = 'https://35.244.9.201/external_api.min.js';
 
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
     if (!existingScript) {
@@ -547,6 +546,26 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // New function to handle timestamp capture
+  const captureTimestamp = () => {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const newTimestamp = {
+      id: Date.now(),
+      time: `${hours}:${minutes}:${seconds}`,
+      note: ''
+    };
+    setTimestamps(prev => [...prev, newTimestamp]);
+    setShowTimestampModal(true);
+  };
+
+  // Function to toggle the timestamp modal
+  const toggleTimestampModal = () => {
+    setShowTimestampModal(!showTimestampModal);
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-950 text-white overflow-hidden">
       {/* Header */}
@@ -575,13 +594,11 @@ function App() {
               placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              // Updated UI: Brighter background, placeholder, and white focus border
               className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-white focus:ring-1 focus:ring-white transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
-              // Updated UI: More vibrant blue for the Share button
               <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
@@ -590,22 +607,23 @@ function App() {
                 Stop
               </Button>
             )}
-            {/* Updated UI: Plus button is now a vibrant green */}
             <Button onClick={addToPlaylist} className="bg-green-600 hover:bg-green-700 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
           </div>
           <div className="hidden md:flex items-center gap-2">
-            {/* JWT key icon is orange */}
             <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-orange-500 hover:bg-gray-700 hover:text-orange-400" title="Configure JWT">
               <Key className="w-5 h-5" />
             </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            {/* Updated UI: Map pin icon is now a vibrant red */}
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
+            </Button>
+            {/* New button to capture timestamp */}
+            <Button onClick={captureTimestamp} variant="ghost" size="icon" className="text-blue-500 hover:bg-gray-700 hover:text-blue-400" title="Note Timestamp">
+              <NotepadText className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -765,6 +783,50 @@ function App() {
             <div className="mt-6 flex justify-end">
               <Button onClick={() => setShowErrorModal(false)} className="bg-red-600 hover:bg-red-700 text-white">
                 Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Timestamp Modal */}
+      {showTimestampModal && (
+        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center">
+                <NotepadText className="w-6 h-6 text-blue-500 mr-3" />
+                <h2 className="text-white text-xl font-semibold">Meeting Timestamps</h2>
+              </div>
+              <Button onClick={toggleTimestampModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <p className="text-sm text-gray-400 mb-4">
+              Timestamps are recorded in HH:MM:SS format and can be used to navigate the meeting recording.
+            </p>
+            <ul className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+              {timestamps.map(ts => (
+                <li key={ts.id} className="bg-gray-700 p-3 rounded-lg flex justify-between items-center">
+                  <span className="text-lg font-mono text-white">{ts.time}</span>
+                  <input
+                    type="text"
+                    placeholder="Add a note..."
+                    value={ts.note}
+                    onChange={(e) => {
+                      setTimestamps(prev => prev.map(item => item.id === ts.id ? { ...item, note: e.target.value } : item));
+                    }}
+                    className="flex-1 ml-4 px-2 py-1 bg-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => navigator.clipboard.writeText(timestamps.map(ts => `${ts.time} - ${ts.note}`).join('\n'))} className="bg-blue-600 hover:bg-blue-700 text-white mr-2">
+                Copy to Clipboard
+              </Button>
+              <Button onClick={toggleTimestampModal} className="bg-gray-600 hover:bg-gray-700 text-white">
+                Done
               </Button>
             </div>
           </div>
