@@ -22,7 +22,6 @@ function App() {
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false);
   const [participantId, setParticipantId] = useState('');
   const [isPlaylistSynced, setIsPlaylistSynced] = useState(false);
-  const [audioMuted, setAudioMuted] = useState(false);
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
@@ -32,9 +31,6 @@ function App() {
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
-  const muteIntervalRef = useRef(null);
-  // State to track the mute status of other participants
-  const [otherParticipantsMuted, setOtherParticipantsMuted] = useState(false);
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -181,60 +177,6 @@ function App() {
     }, 5000);
   };
 
-  const muteJitsiSharedVideo = () => {
-    try {
-      const jitsiVideoContainer = jitsiContainerRef.current;
-      if (!jitsiVideoContainer) return;
-      const videoIframes = jitsiVideoContainer.querySelectorAll('iframe');
-      videoIframes.forEach(iframe => {
-        if (iframe.src.includes('youtube.com')) {
-          iframe.muted = true;
-          iframe.volume = 0;
-          const message = JSON.stringify({ event: 'command', func: 'setVolume', args: [0] });
-          iframe.contentWindow.postMessage(message, '*');
-          const messageMute = JSON.stringify({ event: 'command', func: 'mute' });
-          iframe.contentWindow.postMessage(messageMute, '*');
-          setAudioMuted(true);
-        }
-      });
-      const allVideos = jitsiVideoContainer.querySelectorAll('video');
-      allVideos.forEach(element => {
-        if (!element.muted) {
-          element.muted = true;
-          element.volume = 0;
-        }
-      });
-    } catch (error) {
-      console.error('Error muting shared video:', error);
-    }
-  };
-
-  const stopMutingInterval = () => {
-    if (muteIntervalRef.current) {
-      clearInterval(muteIntervalRef.current);
-      muteIntervalRef.current = null;
-    }
-  };
-
-  const forceAudioMute = () => {
-    stopMutingInterval();
-    muteJitsiSharedVideo();
-    muteIntervalRef.current = setInterval(muteJitsiSharedVideo, 500);
-    setAudioMuted(true);
-  };
-
-  // New function to unmute all participants
-  const unmuteAllParticipants = () => {
-    if (jitsiApi) {
-      try {
-        jitsiApi.executeCommand('muteEveryone', false);
-        setOtherParticipantsMuted(false);
-      } catch (error) {
-        console.error('Error unmuting all participants:', error);
-      }
-    }
-  };
-
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
     if (!window.JitsiMeetExternalAPI || !jitsiContainerRef.current) {
@@ -322,15 +264,10 @@ function App() {
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
-        forceAudioMute();
-        // Unmute other participants when video sharing starts
-        unmuteAllParticipants();
       });
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
-        stopMutingInterval();
-        setAudioMuted(false);
       });
 
       await new Promise((resolve) => {
@@ -354,7 +291,6 @@ function App() {
   };
 
   const cleanupJitsi = () => {
-    stopMutingInterval();
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
@@ -368,7 +304,6 @@ function App() {
     setCurrentSharedVideo('');
     setParticipantId('');
     setIsPlaylistSynced(false);
-    setAudioMuted(false);
     setSyncStatus('disconnected');
     setPlaylist([]);
     localStorage.removeItem('jitsi_shared_playlist');
@@ -400,23 +335,6 @@ function App() {
     return () => { cleanupJitsi(); };
   }, []);
 
-  useEffect(() => {
-    if (!jitsiContainerRef.current) return;
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList') {
-          mutation.addedNodes.forEach((node) => {
-            if (node.tagName === 'IFRAME' || (node.querySelector && node.querySelector('iframe'))) {
-              forceAudioMute();
-            }
-          });
-        }
-      });
-    });
-    observer.observe(jitsiContainerRef.current, { childList: true, subtree: true });
-    return () => { observer.disconnect(); };
-  }, [jitsiContainerRef]);
-
   const toggleMap = () => {
     setShowMap(!showMap);
     if (showPlaylist) setShowPlaylist(false);
@@ -429,7 +347,6 @@ function App() {
         setIsVideoSharing(true);
         setCurrentSharedVideo(videoUrl);
         setVideoUrl('');
-        forceAudioMute();
       } catch (error) {
         console.error('Error sharing video:', error);
         showError('Failed to share video. Please make sure you have joined the meeting.');
@@ -447,8 +364,6 @@ function App() {
         jitsiApi.executeCommand('stopShareVideo');
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
-        stopMutingInterval();
-        setAudioMuted(false);
       } catch (error) {
         console.error('Error stopping video:', error);
       }
@@ -505,9 +420,6 @@ function App() {
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
-          forceAudioMute();
-          // Unmute other participants when video is shared from playlist
-          unmuteAllParticipants();
         } else {
           showError('Could not extract video ID from URL');
         }
