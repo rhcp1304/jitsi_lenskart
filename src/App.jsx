@@ -28,12 +28,13 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [micStateBeforeVideo, setMicStateBeforeVideo] = useState(false); // New state to store mic status
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
   const muteIntervalRef = useRef(null);
+  // State to track the mute status of other participants
+  const [otherParticipantsMuted, setOtherParticipantsMuted] = useState(false);
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -222,6 +223,18 @@ function App() {
     setAudioMuted(true);
   };
 
+  // New function to unmute all participants
+  const unmuteAllParticipants = () => {
+    if (jitsiApi) {
+      try {
+        jitsiApi.executeCommand('muteEveryone', false);
+        setOtherParticipantsMuted(false);
+      } catch (error) {
+        console.error('Error unmuting all participants:', error);
+      }
+    }
+  };
+
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
     if (!window.JitsiMeetExternalAPI || !jitsiContainerRef.current) {
@@ -260,7 +273,7 @@ function App() {
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
-            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
+            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen', 'fodeviceselection',
             'hangup', 'profile', 'chat', 'recording', 'livestreaming', 'etherpad', 'sharedvideo',
             'settings', 'raisehand', 'videoquality', 'filmstrip', 'invite', 'feedback', 'stats',
             'shortcuts', 'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
@@ -306,31 +319,18 @@ function App() {
           handleIncomingMessage(event.message);
         }
       });
-
-      // Handle video start
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
-        // Store the mic state before muting it
-        api.isAudioMuted().then(muted => {
-          setMicStateBeforeVideo(muted);
-          if (!muted) {
-            jitsiApi.executeCommand('toggleAudio');
-          }
-        });
         forceAudioMute();
+        // Unmute other participants when video sharing starts
+        unmuteAllParticipants();
       });
-
-      // Handle video stop
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
         stopMutingInterval();
         setAudioMuted(false);
-        // Restore the mic state based on what it was before the video started
-        if (!micStateBeforeVideo) {
-          jitsiApi.executeCommand('toggleAudio');
-        }
       });
 
       await new Promise((resolve) => {
@@ -506,6 +506,8 @@ function App() {
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
           forceAudioMute();
+          // Unmute other participants when video is shared from playlist
+          unmuteAllParticipants();
         } else {
           showError('Could not extract video ID from URL');
         }
