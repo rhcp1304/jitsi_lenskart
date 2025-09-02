@@ -29,7 +29,8 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [timestamps, setTimestamps] = useState([]);
   const [showTimestampModal, setShowTimestampModal] = useState(false);
-  const [recordingStartTime, setRecordingStartTime] = useState(null); // New state for recording start time
+  // This is the key state variable that should be updated
+  const [recordingStartTime, setRecordingStartTime] = useState(null);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -149,7 +150,7 @@ function App() {
             break;
           case 'REORDER':
             setPlaylist(message.data);
-            storePlaylistLocally(message.data);
+            storePlaylistLocally(newPlaylist);
             break;
         }
         setIsPlaylistSynced(true);
@@ -285,24 +286,27 @@ function App() {
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
-      // Event listeners for recording
-      api.addEventListener('recordingStarted', ({ mode }) => {
-        if (mode === 'file') {
-            setRecordingStartTime(Date.now());
-            console.log("Recording started. Timestamp capture is now enabled.");
-        }
-      });
-      api.addEventListener('recordingStopped', () => {
-        setRecordingStartTime(null);
-        console.log("Recording stopped. Timestamp capture is now disabled.");
-      });
-
+      // REGISTER ALL EVENT LISTENERS HERE, BEFORE ANY ASYNCHRONOUS CALLS
       api.addEventListener('videoConferenceJoined', (event) => {
         setSyncStatus('connected');
         setTimeout(() => {
           startPeriodicSync();
           broadcastPlaylistUpdate('FULL_SYNC', playlist);
         }, 2000);
+      });
+
+      // THIS IS THE CRITICAL PART: LISTEN FOR THE RECORDING EVENT
+      api.addEventListener('recordingStarted', ({ mode }) => {
+        if (mode === 'file') {
+            const currentTime = Date.now();
+            setRecordingStartTime(currentTime);
+            console.log("Jitsi API Event: recordingStarted. Timestamp capture is now enabled.");
+        }
+      });
+
+      api.addEventListener('recordingStopped', () => {
+        setRecordingStartTime(null);
+        console.log("Jitsi API Event: recordingStopped. Timestamp capture is now disabled.");
       });
 
       api.addEventListener('participantJoined', (event) => {
@@ -559,15 +563,37 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const captureTimestamp = () => {
-    // Check if the recording has started before trying to capture a timestamp
-    if (!recordingStartTime) {
+  const captureTimestamp = async () => {
+    if (!jitsiApi) {
+      showError("Please wait for the meeting to load and join first.");
+      return;
+    }
+
+    let currentRecordingTime = recordingStartTime;
+
+    // Fallback check: If the event was missed, check the current recording status
+    if (currentRecordingTime === null) {
+      try {
+        const status = await jitsiApi.getRecordingStatus();
+        console.log("Fallback check: Recording status is", status);
+
+        if (status && status.mode === 'file' && status.on) {
+          console.log("Fallback successful! Recording is on, setting start time now.");
+          currentRecordingTime = Date.now();
+          setRecordingStartTime(currentRecordingTime);
+        }
+      } catch (error) {
+        console.error("Error getting recording status:", error);
+      }
+    }
+
+    if (currentRecordingTime === null) {
       showError("Meeting recording has not started yet. Please start the recording first to use this feature.");
       return;
     }
 
     // Calculate the elapsed time in milliseconds
-    const elapsedTimeInMs = Date.now() - recordingStartTime;
+    const elapsedTimeInMs = Date.now() - currentRecordingTime;
 
     // Convert milliseconds to HH:MM:SS format
     const hours = Math.floor(elapsedTimeInMs / 3600000);
