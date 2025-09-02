@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
   MapPin, X, Youtube, List, Plus, Play, Trash2, Loader2, Search, ChevronDown, AlertCircle,
+  Clock, PauseCircle,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -22,16 +23,20 @@ function App() {
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false);
   const [participantId, setParticipantId] = useState('');
   const [isPlaylistSynced, setIsPlaylistSynced] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [timestamps, setTimestamps] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showTimestamps, setShowTimestamps] = useState(false);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
-  const unmuteObserverRef = useRef(null); // Ref to hold the MutationObserver
+  const muteIntervalRef = useRef(null);
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -178,44 +183,47 @@ function App() {
     }, 5000);
   };
 
-  // --- NEW UNMUTE AUTOMATION LOGIC ---
-  const startUnmuteAutomation = () => {
-    if (unmuteObserverRef.current) {
-      stopUnmuteAutomation();
-    }
-
-    // Use a robust selector to find the local audio button
-    const muteBtn = document.querySelector('[data-testid="mute-local-mic"]');
-
-    if (muteBtn) {
-      const observer = new MutationObserver(mutations => {
-        mutations.forEach(mutation => {
-          if (mutation.attributeName === 'aria-pressed') {
-            const isMuted = muteBtn.getAttribute('aria-pressed') === 'true';
-            if (isMuted) {
-              console.log('Jitsi muted a participant. Unmuting via automation.');
-              muteBtn.click();
-            }
-          }
-        });
+  const muteJitsiSharedVideo = () => {
+    try {
+      const jitsiVideoContainer = jitsiContainerRef.current;
+      if (!jitsiVideoContainer) return;
+      const videoIframes = jitsiVideoContainer.querySelectorAll('iframe');
+      videoIframes.forEach(iframe => {
+        if (iframe.src.includes('youtube.com')) {
+          iframe.muted = true;
+          iframe.volume = 0;
+          const message = JSON.stringify({ event: 'command', func: 'setVolume', args: [0] });
+          iframe.contentWindow.postMessage(message, '*');
+          const messageMute = JSON.stringify({ event: 'command', func: 'mute' });
+          iframe.contentWindow.postMessage(messageMute, '*');
+          setAudioMuted(true);
+        }
       });
-
-      observer.observe(muteBtn, { attributes: true });
-      unmuteObserverRef.current = observer;
-    } else {
-      console.warn('Could not find the mute button to start automation.');
+      const allVideos = jitsiVideoContainer.querySelectorAll('video');
+      allVideos.forEach(element => {
+        if (!element.muted) {
+          element.muted = true;
+          element.volume = 0;
+        }
+      });
+    } catch (error) {
+      console.error('Error muting shared video:', error);
     }
   };
 
-  const stopUnmuteAutomation = () => {
-    if (unmuteObserverRef.current) {
-      unmuteObserverRef.current.disconnect();
-      unmuteObserverRef.current = null;
-      console.log('Unmute automation stopped.');
+  const stopMutingInterval = () => {
+    if (muteIntervalRef.current) {
+      clearInterval(muteIntervalRef.current);
+      muteIntervalRef.current = null;
     }
   };
 
-  // --- END NEW LOGIC ---
+  const forceAudioMute = () => {
+    stopMutingInterval();
+    muteJitsiSharedVideo();
+    muteIntervalRef.current = setInterval(muteJitsiSharedVideo, 500);
+    setAudioMuted(true);
+  };
 
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
@@ -242,7 +250,7 @@ function App() {
         width: '100%',
         height: '100%',
         configOverwrite: {
-          startWithAudioMuted: false,
+          startWithAudioMuted: true,
           startWithVideoMuted: true,
           prejoinPageEnabled: true,
           enableWelcomePage: false,
@@ -304,12 +312,35 @@ function App() {
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
-        startUnmuteAutomation(); // Start the automation
+        forceAudioMute();
       });
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
-        stopUnmuteAutomation(); // Stop the automation
+        stopMutingInterval();
+        setAudioMuted(false);
+      });
+
+      // Listen for recording events and log timestamps
+      api.addEventListener('recordingStarted', (event) => {
+        setIsRecording(true);
+        logTimestamp('Recording started');
+      });
+      api.addEventListener('recordingStopped', (event) => {
+        setIsRecording(false);
+        logTimestamp('Recording stopped');
+      });
+      api.addEventListener('recordingOn', (event) => {
+        if (!isRecording) {
+          setIsRecording(true);
+          logTimestamp('Recording started (event)');
+        }
+      });
+      api.addEventListener('recordingOff', (event) => {
+        if (isRecording) {
+          setIsRecording(false);
+          logTimestamp('Recording stopped (event)');
+        }
       });
 
       await new Promise((resolve) => {
@@ -333,11 +364,11 @@ function App() {
   };
 
   const cleanupJitsi = () => {
+    stopMutingInterval();
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
-    stopUnmuteAutomation(); // Ensure the observer is disconnected
     if (jitsiApi) {
       try { jitsiApi.dispose(); } catch (error) { console.error('Error disposing Jitsi API:', error); }
       setJitsiApi(null);
@@ -347,6 +378,7 @@ function App() {
     setCurrentSharedVideo('');
     setParticipantId('');
     setIsPlaylistSynced(false);
+    setAudioMuted(false);
     setSyncStatus('disconnected');
     setPlaylist([]);
     localStorage.removeItem('jitsi_shared_playlist');
@@ -378,9 +410,36 @@ function App() {
     return () => { cleanupJitsi(); };
   }, []);
 
+  useEffect(() => {
+    if (!jitsiContainerRef.current) return;
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+          mutation.addedNodes.forEach((node) => {
+            if (node.tagName === 'IFRAME' || (node.querySelector && node.querySelector('iframe'))) {
+              forceAudioMute();
+            }
+          });
+        }
+      });
+    });
+    observer.observe(jitsiContainerRef.current, { childList: true, subtree: true });
+    return () => { observer.disconnect(); };
+  }, [jitsiContainerRef]);
+
+  // New function to log a timestamp
+  const logTimestamp = (label) => {
+    const now = new Date();
+    setTimestamps((prev) => [...prev, {
+      time: now.toLocaleTimeString(),
+      label: label || 'Timestamp'
+    }]);
+  };
+
   const toggleMap = () => {
     setShowMap(!showMap);
     if (showPlaylist) setShowPlaylist(false);
+    if (showTimestamps) setShowTimestamps(false);
   };
   const shareVideoDirectly = () => {
     if (jitsiApi && videoUrl) {
@@ -390,6 +449,7 @@ function App() {
         setIsVideoSharing(true);
         setCurrentSharedVideo(videoUrl);
         setVideoUrl('');
+        forceAudioMute();
       } catch (error) {
         console.error('Error sharing video:', error);
         showError('Failed to share video. Please make sure you have joined the meeting.');
@@ -407,6 +467,8 @@ function App() {
         jitsiApi.executeCommand('stopShareVideo');
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
+        stopMutingInterval();
+        setAudioMuted(false);
       } catch (error) {
         console.error('Error stopping video:', error);
       }
@@ -463,6 +525,7 @@ function App() {
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
+          forceAudioMute();
         } else {
           showError('Could not extract video ID from URL');
         }
@@ -477,6 +540,13 @@ function App() {
 
   const togglePlaylist = () => {
     setShowPlaylist(!showPlaylist);
+    if (showMap) setShowMap(false);
+    if (showTimestamps) setShowTimestamps(false);
+  };
+
+  const toggleTimestamps = () => {
+    setShowTimestamps(!showTimestamps);
+    if (showPlaylist) setShowPlaylist(false);
     if (showMap) setShowMap(false);
   };
 
@@ -523,6 +593,9 @@ function App() {
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
+            <Button onClick={toggleTimestamps} variant="ghost" size="icon" className="text-yellow-400 hover:text-yellow-300" title="Show Timestamps">
+              {showTimestamps ? <X className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+            </Button>
           </div>
         </div>
 
@@ -534,11 +607,13 @@ function App() {
               placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
+              // Updated UI: Brighter background, placeholder, and white focus border
               className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-white focus:ring-1 focus:ring-white transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
+              // Updated UI: More vibrant blue for the Share button
               <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
@@ -547,16 +622,24 @@ function App() {
                 Stop
               </Button>
             )}
+            {/* Updated UI: Plus button is now a vibrant green */}
             <Button onClick={addToPlaylist} className="bg-green-600 hover:bg-green-700 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
           </div>
           <div className="hidden md:flex items-center gap-2">
+            <Button onClick={logTimestamp} variant="ghost" className="bg-yellow-600 hover:bg-yellow-700 text-white" disabled={isInitializing} title="Log Timestamp">
+              <Clock className="w-4 h-4 mr-2" /> Note Time
+            </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
+            {/* Updated UI: Map pin icon is now a vibrant red */}
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
+            </Button>
+            <Button onClick={toggleTimestamps} variant="ghost" size="icon" className="text-yellow-400 hover:bg-gray-700 hover:text-yellow-300" title="Show Timestamps">
+              {showTimestamps ? <ChevronDown className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
             </Button>
           </div>
         </div>
@@ -587,7 +670,7 @@ function App() {
         </div>
 
         {/* Panels Container */}
-        {(showPlaylist || showMap) && (
+        {(showPlaylist || showMap || showTimestamps) && (
           <div className="fixed bottom-0 left-0 right-0 h-2/3 md:h-full md:relative md:w-1/2 bg-gray-800 border-t md:border-l border-gray-700 shadow-xl flex flex-col z-20 transition-transform duration-300 ease-in-out">
             {/* Playlist Panel */}
             {showPlaylist && (
@@ -661,6 +744,34 @@ function App() {
                 </div>
                 <div className="flex-1 min-h-0">
                   <EnhancedFreeMap />
+                </div>
+              </div>
+            )}
+
+            {/* Timestamps Panel */}
+            {showTimestamps && (
+              <div className="flex flex-col h-full">
+                <div className="bg-gray-900 p-4 flex items-center justify-between border-b border-gray-700 flex-shrink-0">
+                  <h2 className="text-lg font-semibold">Meeting Timestamps ({timestamps.length})</h2>
+                  <Button onClick={() => setTimestamps([])} variant="ghost" size="sm" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Clear Timestamps">
+                    Clear All
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                  {timestamps.length === 0 ? (
+                    <div className="text-gray-400 text-center py-8">
+                      <Clock className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>No timestamps logged yet.</p>
+                      <p className="text-sm">Click "Note Time" to add a timestamp.</p>
+                    </div>
+                  ) : (
+                    timestamps.map((ts, index) => (
+                      <div key={index} className="bg-gray-700/50 rounded-lg p-3 shadow-sm flex items-center justify-between">
+                        <span className="font-mono text-sm">{ts.time}</span>
+                        <span className="text-sm text-gray-300">{ts.label}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
