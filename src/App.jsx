@@ -288,44 +288,8 @@ function App() {
         setTimeout(() => {
           startPeriodicSync();
           broadcastPlaylistUpdate('FULL_SYNC', playlist);
-          // Set up the unmute logic after a delay to ensure DOM is ready
-          setTimeout(setupAutoUnmute, 500);
         }, 2000);
       });
-
-      const setupAutoUnmute = () => {
-        try {
-          const jitsiIframe = jitsiContainerRef.current.querySelector('iframe');
-          if (!jitsiIframe) {
-            console.warn("Jitsi iframe not found.");
-            return;
-          }
-
-          const iframeDoc = jitsiIframe.contentDocument || jitsiIframe.contentWindow.document;
-
-          // Use a more specific selector to find the microphone button
-          const muteBtn = iframeDoc.querySelector('.toolbar-buttons .toolbox-icon[data-testid="mute-audio"]');
-
-          if (muteBtn) {
-            const observer = new MutationObserver((mutations) => {
-              for (const mutation of mutations) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'aria-pressed') {
-                  const isMuted = muteBtn.getAttribute('aria-pressed') === 'true';
-                  if (isMuted) {
-                    muteBtn.click();
-                  }
-                }
-              }
-            });
-            observer.observe(muteBtn, { attributes: true });
-          } else {
-            console.warn("Jitsi mute button not found.");
-          }
-        } catch (error) {
-          console.error("Failed to set up auto-unmute observer:", error);
-        }
-      };
-
 
       api.addEventListener('participantJoined', (event) => {
         setTimeout(() => {
