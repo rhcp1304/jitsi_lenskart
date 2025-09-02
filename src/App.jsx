@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Loader2, Search, ChevronDown, AlertCircle, Key, NotepadText,
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Loader2, Search, ChevronDown, AlertCircle,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -28,8 +28,6 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [timestamps, setTimestamps] = useState([]);
-  const [showTimestampModal, setShowTimestampModal] = useState(false);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -538,59 +536,6 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const captureTimestamp = async () => {
-    if (!jitsiApi) {
-        showError("Meeting not initialized. Please wait and try again.");
-        return;
-    }
-
-    let timeInSeconds;
-    try {
-        // Attempt to get the recording time. This relies on the paid JaaS feature.
-        const recordingTime = await jitsiApi.getRecordingTime();
-        if (typeof recordingTime === 'number') {
-            timeInSeconds = recordingTime;
-        } else {
-            // Fallback if the API returns an unexpected value.
-            // This happens with free accounts or if the API is not providing the time.
-            console.warn("Jitsi API did not return a valid recording time. Falling back to conference duration.");
-            const conferenceDuration = await jitsiApi.getConferenceDuration();
-            timeInSeconds = Math.floor(conferenceDuration / 1000);
-        }
-    } catch (e) {
-        console.error("Failed to get recording time, falling back to conference duration:", e);
-        try {
-            const conferenceDuration = await jitsiApi.getConferenceDuration();
-            timeInSeconds = Math.floor(conferenceDuration / 1000);
-        } catch (error) {
-            showError("Could not retrieve meeting time. Please ensure a recording is active and try again.");
-            return;
-        }
-    }
-
-    const hours = Math.floor(timeInSeconds / 3600);
-    const minutes = Math.floor((timeInSeconds % 3600) / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-
-    const formattedTime = [
-      String(hours).padStart(2, '0'),
-      String(minutes).padStart(2, '0'),
-      String(seconds).padStart(2, '0')
-    ].join(':');
-
-    const newTimestamp = {
-      id: Date.now(),
-      time: formattedTime,
-      note: ''
-    };
-    setTimestamps(prev => [...prev, newTimestamp]);
-    setShowTimestampModal(true);
-  };
-
-  const toggleTimestampModal = () => {
-    setShowTimestampModal(!showTimestampModal);
-  };
-
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-950 text-white overflow-hidden">
       {/* Header */}
@@ -604,9 +549,6 @@ function App() {
             </Button>
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
-            </Button>
-            <Button onClick={captureTimestamp} variant="ghost" size="icon" className="text-blue-500 hover:text-blue-400" title="Note Timestamp">
-              <NotepadText className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -646,9 +588,6 @@ function App() {
             {/* Updated UI: Map pin icon is now a vibrant red */}
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
-            </Button>
-            <Button onClick={captureTimestamp} variant="ghost" size="icon" className="text-blue-500 hover:bg-gray-700 hover:text-blue-400" title="Note Timestamp">
-              <NotepadText className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -759,56 +698,6 @@ function App() {
           </div>
         )}
       </div>
-
-      {/* JWT Modal */}
-      {showTimestampModal && (
-        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center">
-                <NotepadText className="w-6 h-6 text-blue-500 mr-3" />
-                <h2 className="text-white text-xl font-semibold">Meeting Timestamps</h2>
-              </div>
-              <Button onClick={toggleTimestampModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <p className="text-sm text-gray-400 mb-4">
-              Timestamps are recorded in HH:MM:SS format.
-            </p>
-            <ul className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-              {timestamps.length === 0 ? (
-                <div className="text-gray-400 text-center py-4">
-                  <p>No timestamps recorded yet.</p>
-                </div>
-              ) : (
-                timestamps.map(ts => (
-                  <li key={ts.id} className="bg-gray-700 p-3 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                    <span className="text-lg font-mono text-white">{ts.time}</span>
-                    <input
-                      type="text"
-                      placeholder="Add a note..."
-                      value={ts.note}
-                      onChange={(e) => {
-                        setTimestamps(prev => prev.map(item => item.id === ts.id ? { ...item, note: e.target.value } : item));
-                      }}
-                      className="flex-1 w-full sm:ml-4 px-2 py-1 bg-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </li>
-                ))
-              )}
-            </ul>
-            <div className="mt-6 flex justify-end">
-              <Button onClick={() => navigator.clipboard.writeText(timestamps.map(ts => `${ts.time} - ${ts.note}`).join('\n'))} className="bg-blue-600 hover:bg-blue-700 text-white mr-2">
-                Copy to Clipboard
-              </Button>
-              <Button onClick={toggleTimestampModal} className="bg-gray-600 hover:bg-gray-700 text-white">
-                Done
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Custom Error Modal */}
       {showErrorModal && (
