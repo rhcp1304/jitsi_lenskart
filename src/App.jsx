@@ -177,6 +177,31 @@ function App() {
     }, 5000);
   };
 
+  // New UI automation function to unmute participants
+  const unmuteParticipantsViaUI = () => {
+    setTimeout(() => {
+      try {
+        const jitsiContainer = jitsiContainerRef.current;
+        if (!jitsiContainer) return;
+
+        // This is a common test ID for the microphone button in Jitsi.
+        // It might be a different class or test ID in your specific Jitsi version.
+        // You might need to inspect the DOM to find the correct selector.
+        const muteButtons = jitsiContainer.querySelectorAll('[data-testid="mute-local-mic"]');
+
+        muteButtons.forEach(button => {
+          // Check if the button is in a "muted" state before clicking
+          if (button.classList.contains('is-muted')) { // This class might also need verification
+            button.click();
+            console.log('Unmuted a participant via UI automation.');
+          }
+        });
+      } catch (error) {
+        console.error('UI automation failed:', error);
+      }
+    }, 2000); // Wait for 2 seconds to allow Jitsi to finish its default actions
+  };
+
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
     if (!window.JitsiMeetExternalAPI || !jitsiContainerRef.current) {
@@ -202,7 +227,7 @@ function App() {
         width: '100%',
         height: '100%',
         configOverwrite: {
-          startWithAudioMuted: false, // Changed from true to false
+          startWithAudioMuted: false,
           startWithVideoMuted: true,
           prejoinPageEnabled: true,
           enableWelcomePage: false,
@@ -264,6 +289,8 @@ function App() {
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
+        // Call the new UI automation function to unmute all participants
+        unmuteParticipantsViaUI();
       });
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
@@ -420,6 +447,7 @@ function App() {
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
+          unmuteParticipantsViaUI(); // Call the new UI automation function here as well
         } else {
           showError('Could not extract video ID from URL');
         }
@@ -491,13 +519,11 @@ function App() {
               placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              // Updated UI: Brighter background, placeholder, and white focus border
               className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-white focus:ring-1 focus:ring-white transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
-              // Updated UI: More vibrant blue for the Share button
               <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
@@ -506,7 +532,6 @@ function App() {
                 Stop
               </Button>
             )}
-            {/* Updated UI: Plus button is now a vibrant green */}
             <Button onClick={addToPlaylist} className="bg-green-600 hover:bg-green-700 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
@@ -515,7 +540,6 @@ function App() {
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
-            {/* Updated UI: Map pin icon is now a vibrant red */}
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
