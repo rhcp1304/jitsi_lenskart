@@ -202,7 +202,7 @@ function App() {
         width: '100%',
         height: '100%',
         configOverwrite: {
-          startWithAudioMuted: true,
+          startWithAudioMuted: false, // Changed from true to false
           startWithVideoMuted: true,
           prejoinPageEnabled: true,
           enableWelcomePage: false,
