@@ -28,6 +28,7 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [micStateBeforeVideo, setMicStateBeforeVideo] = useState(false); // New state to store mic status
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -221,41 +222,6 @@ function App() {
     setAudioMuted(true);
   };
 
-  // NEW FUNCTION: Implements your console solution
-  const setupAutoUnmuteObserver = () => {
-    try {
-      const jitsiIframe = jitsiContainerRef.current.querySelector('iframe');
-      if (!jitsiIframe || !jitsiIframe.contentDocument) {
-        console.warn("Jitsi iframe not ready. Auto-unmute not set up.");
-        return;
-      }
-      const iframeDoc = jitsiIframe.contentDocument;
-
-      // Use a more reliable selector (data-testid)
-      const muteBtn = iframeDoc.querySelector('.toolbox-button[data-testid="mute-audio"]');
-
-      if (muteBtn) {
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'aria-pressed') {
-              // Check if the button is muted
-              if (muteBtn.getAttribute('aria-pressed') === 'true') {
-                console.log("Mutation detected: Microphone was muted. Triggering unmute click.");
-                muteBtn.click();
-              }
-            }
-          });
-        });
-        observer.observe(muteBtn, { attributes: true });
-        console.log("Auto-unmute observer successfully initialized.");
-      } else {
-        console.warn("Mute button not found inside Jitsi iframe. Auto-unmute not possible.");
-      }
-    } catch (error) {
-      console.error("Failed to set up auto-unmute observer:", error);
-    }
-  };
-
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
     if (!window.JitsiMeetExternalAPI || !jitsiContainerRef.current) {
@@ -294,7 +260,7 @@ function App() {
         },
         interfaceConfigOverwrite: {
           TOOLBAR_BUTTONS: [
-            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen', 'fodeviceselection',
+            'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
             'hangup', 'profile', 'chat', 'recording', 'livestreaming', 'etherpad', 'sharedvideo',
             'settings', 'raisehand', 'videoquality', 'filmstrip', 'invite', 'feedback', 'stats',
             'shortcuts', 'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
@@ -323,8 +289,6 @@ function App() {
         setTimeout(() => {
           startPeriodicSync();
           broadcastPlaylistUpdate('FULL_SYNC', playlist);
-          // Call the new observer function
-          setupAutoUnmuteObserver();
         }, 2000);
       });
 
@@ -342,16 +306,31 @@ function App() {
           handleIncomingMessage(event.message);
         }
       });
+
+      // Handle video start
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
+        // Store the mic state before muting it
+        api.isAudioMuted().then(muted => {
+          setMicStateBeforeVideo(muted);
+          if (!muted) {
+            jitsiApi.executeCommand('toggleAudio');
+          }
+        });
         forceAudioMute();
       });
+
+      // Handle video stop
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
         stopMutingInterval();
         setAudioMuted(false);
+        // Restore the mic state based on what it was before the video started
+        if (!micStateBeforeVideo) {
+          jitsiApi.executeCommand('toggleAudio');
+        }
       });
 
       await new Promise((resolve) => {
