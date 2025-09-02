@@ -31,6 +31,7 @@ function App() {
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
+  const unmuteIntervalRef = useRef(null);
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -177,29 +178,37 @@ function App() {
     }, 5000);
   };
 
-  // New UI automation function to unmute participants
-  const unmuteParticipantsViaUI = () => {
-    setTimeout(() => {
+  // NEW UI AUTOMATION FUNCTIONS
+  const startUnmuteAutomation = () => {
+    if (unmuteIntervalRef.current) return;
+    unmuteIntervalRef.current = setInterval(() => {
       try {
         const jitsiContainer = jitsiContainerRef.current;
         if (!jitsiContainer) return;
 
-        // This is a common test ID for the microphone button in Jitsi.
-        // It might be a different class or test ID in your specific Jitsi version.
-        // You might need to inspect the DOM to find the correct selector.
+        // Select all microphone buttons in the UI
+        // This selector might need to be adjusted based on the specific Jitsi version's HTML structure.
+        // Common selectors include '[data-testid="mute-local-mic"]' or classes like '.toolbar-button__microphone'
         const muteButtons = jitsiContainer.querySelectorAll('[data-testid="mute-local-mic"]');
 
         muteButtons.forEach(button => {
           // Check if the button is in a "muted" state before clicking
-          if (button.classList.contains('is-muted')) { // This class might also need verification
+          if (button.classList.contains('is-muted')) {
             button.click();
-            console.log('Unmuted a participant via UI automation.');
+            console.log('Unmuted a participant via UI automation loop.');
           }
         });
       } catch (error) {
-        console.error('UI automation failed:', error);
+        console.error('UI automation loop failed:', error);
       }
-    }, 2000); // Wait for 2 seconds to allow Jitsi to finish its default actions
+    }, 1000); // Check every 1 second
+  };
+
+  const stopUnmuteAutomation = () => {
+    if (unmuteIntervalRef.current) {
+      clearInterval(unmuteIntervalRef.current);
+      unmuteIntervalRef.current = null;
+    }
   };
 
   const initializeJitsi = async () => {
@@ -289,12 +298,12 @@ function App() {
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
-        // Call the new UI automation function to unmute all participants
-        unmuteParticipantsViaUI();
+        startUnmuteAutomation(); // Start the new automation loop
       });
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
+        stopUnmuteAutomation(); // Stop the automation loop when video ends
       });
 
       await new Promise((resolve) => {
@@ -322,6 +331,7 @@ function App() {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
+    stopUnmuteAutomation(); // Ensure the loop is stopped on cleanup
     if (jitsiApi) {
       try { jitsiApi.dispose(); } catch (error) { console.error('Error disposing Jitsi API:', error); }
       setJitsiApi(null);
@@ -447,7 +457,7 @@ function App() {
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
-          unmuteParticipantsViaUI(); // Call the new UI automation function here as well
+          startUnmuteAutomation(); // Start the new automation loop here too
         } else {
           showError('Could not extract video ID from URL');
         }
@@ -675,8 +685,8 @@ function App() {
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
