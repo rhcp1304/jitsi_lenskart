@@ -31,7 +31,7 @@ function App() {
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
   const syncIntervalRef = useRef(null);
-  const unmuteIntervalRef = useRef(null);
+  const unmuteObserverRef = useRef(null); // Ref to hold the MutationObserver
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -178,38 +178,44 @@ function App() {
     }, 5000);
   };
 
-  // NEW UI AUTOMATION FUNCTIONS
+  // --- NEW UNMUTE AUTOMATION LOGIC ---
   const startUnmuteAutomation = () => {
-    if (unmuteIntervalRef.current) return;
-    unmuteIntervalRef.current = setInterval(() => {
-      try {
-        const jitsiContainer = jitsiContainerRef.current;
-        if (!jitsiContainer) return;
+    if (unmuteObserverRef.current) {
+      stopUnmuteAutomation();
+    }
 
-        // Select all microphone buttons in the UI
-        // This selector might need to be adjusted based on the specific Jitsi version's HTML structure.
-        // Common selectors include '[data-testid="mute-local-mic"]' or classes like '.toolbar-button__microphone'
-        const muteButtons = jitsiContainer.querySelectorAll('[data-testid="mute-local-mic"]');
+    // Use a robust selector to find the local audio button
+    const muteBtn = document.querySelector('[data-testid="mute-local-mic"]');
 
-        muteButtons.forEach(button => {
-          // Check if the button is in a "muted" state before clicking
-          if (button.classList.contains('is-muted')) {
-            button.click();
-            console.log('Unmuted a participant via UI automation loop.');
+    if (muteBtn) {
+      const observer = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+          if (mutation.attributeName === 'aria-pressed') {
+            const isMuted = muteBtn.getAttribute('aria-pressed') === 'true';
+            if (isMuted) {
+              console.log('Jitsi muted a participant. Unmuting via automation.');
+              muteBtn.click();
+            }
           }
         });
-      } catch (error) {
-        console.error('UI automation loop failed:', error);
-      }
-    }, 1000); // Check every 1 second
+      });
+
+      observer.observe(muteBtn, { attributes: true });
+      unmuteObserverRef.current = observer;
+    } else {
+      console.warn('Could not find the mute button to start automation.');
+    }
   };
 
   const stopUnmuteAutomation = () => {
-    if (unmuteIntervalRef.current) {
-      clearInterval(unmuteIntervalRef.current);
-      unmuteIntervalRef.current = null;
+    if (unmuteObserverRef.current) {
+      unmuteObserverRef.current.disconnect();
+      unmuteObserverRef.current = null;
+      console.log('Unmute automation stopped.');
     }
   };
+
+  // --- END NEW LOGIC ---
 
   const initializeJitsi = async () => {
     if (isInitializing || (jitsiInitialized && jitsiApi)) return;
@@ -298,12 +304,12 @@ function App() {
       api.addEventListener('sharedVideoStarted', (event) => {
         setIsVideoSharing(true);
         setCurrentSharedVideo(event.url);
-        startUnmuteAutomation(); // Start the new automation loop
+        startUnmuteAutomation(); // Start the automation
       });
       api.addEventListener('sharedVideoStopped', (event) => {
         setIsVideoSharing(false);
         setCurrentSharedVideo('');
-        stopUnmuteAutomation(); // Stop the automation loop when video ends
+        stopUnmuteAutomation(); // Stop the automation
       });
 
       await new Promise((resolve) => {
@@ -331,7 +337,7 @@ function App() {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
-    stopUnmuteAutomation(); // Ensure the loop is stopped on cleanup
+    stopUnmuteAutomation(); // Ensure the observer is disconnected
     if (jitsiApi) {
       try { jitsiApi.dispose(); } catch (error) { console.error('Error disposing Jitsi API:', error); }
       setJitsiApi(null);
@@ -457,7 +463,6 @@ function App() {
           jitsiApi.executeCommand('startShareVideo', url);
           setIsVideoSharing(true);
           setCurrentSharedVideo(url);
-          startUnmuteAutomation(); // Start the new automation loop here too
         } else {
           showError('Could not extract video ID from URL');
         }
@@ -685,8 +690,8 @@ function App() {
               </Button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
