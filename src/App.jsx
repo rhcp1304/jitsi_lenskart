@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle, NotepadText,
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Loader2, Search, ChevronDown, AlertCircle,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
 import LenskartLogo from './logo.png';
+
+// Embed the JWT directly in the code
+const PERMANENT_JWT_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6InZwYWFzLW1hZ2ljLWNvb2tpZS1iOGJhYzczZWFiYzA0NTE4ODU0MjYwMWZmYmQ3ZWI3Yy9kN2Q5ZWUiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3ODgzMzE2OTgsIm5iZlRpbWUiOjE3NTY3OTU2ODgsInJvb20iOiIqIiwic3ViIjoidnBhYXMtbWFnaWMtY29va2llLWI4YmFjNzNlYWJjMDQ1MTg4NTQyNjAxZmZiZDdlYjdjIiwiY29udGV4dCI6eyJ1c2VyIjp7Im1vZGVyYXRvciI6InRydWUiLCJpZCI6ImJkNDE2NjdlLTIwYzMtNDYyMS1hYzE1LTlkZDYxYTFkNDg3OSIsIm5hbWUiOiJBbmtpdCBBbmFuZCIsImVtYWlsIjoiYW5raXQuYW5hbmRAbGVuc2thcnQuY29tIn0sImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOiJmYWxzZSIsInJlY29yZGluZyI6InRydWUiLCJvdXRib3VuZC1jYWxsIjoiZmFsc2UiLCJzaXAtb3V0Ym91bmQtY2FsbCI6ImZhbHNlIiwidHJhbnNjcmlwdGlvbiI6ImZhbHNlIn19LCJpc3MiOiJjaGF0IiwiYXVkIjoiaml0c2kifQ.MqlyrnteF4jM9Jmn_mLW6jgbzwpNoGFq53YYCpbOCKiFl4WKk4D8masodsrWuy01Gov5Wz9AWAOrDCJt835cyYP_dQgR5M-F3useh4GcUxEkvQ3trMkp_PlZLs6XgzK-IuFxqdQ3wDH89VKxowl-RVR9ZVON-8leBmBLaDmep1-AutoFJuAsHIkB4rWeaY1yNXq6I7KoRZaCeeY7OQTIo9bAWtYJg-QQ6QMKSobqmCqrTHEM9gR69EwLERlJ72JKImzszOFyNLX5ZdaJm6acqdDpfTMPteLMtdARjlzclaEq9hZcBTj4fe-VTkEmTvI9Ozlx4Jom1hOzrlwJHG8EpQ";
 
 function App() {
   const [showMap, setShowMap] = useState(false);
@@ -14,8 +17,6 @@ function App() {
   const [currentSharedVideo, setCurrentSharedVideo] = useState('');
   const [playlist, setPlaylist] = useState([]);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const [jwtToken, setJwtToken] = useState('');
-  const [showJwtModal, setShowJwtModal] = useState(false);
   const [jitsiInitialized, setJitsiInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isLoadingVideoTitle, setIsLoadingVideoTitle] = useState(false);
@@ -27,10 +28,6 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [timestamps, setTimestamps] = useState([]);
-  const [showTimestampModal, setShowTimestampModal] = useState(false);
-  // This is the key state variable that should be updated
-  const [recordingStartTime, setRecordingStartTime] = useState(null);
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -150,7 +147,7 @@ function App() {
             break;
           case 'REORDER':
             setPlaylist(message.data);
-            storePlaylistLocally(newPlaylist);
+            storePlaylistLocally(message.data);
             break;
         }
         setIsPlaylistSynced(true);
@@ -278,35 +275,20 @@ function App() {
         },
       };
 
-      if (jwtToken && jwtToken.trim() && jwtToken.trim().length > 10) {
-        config.jwt = jwtToken.trim();
-      }
+      // Use the embedded JWT here
+      config.jwt = PERMANENT_JWT_TOKEN;
 
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
+
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
-      // REGISTER ALL EVENT LISTENERS HERE, BEFORE ANY ASYNCHRONOUS CALLS
       api.addEventListener('videoConferenceJoined', (event) => {
         setSyncStatus('connected');
         setTimeout(() => {
           startPeriodicSync();
           broadcastPlaylistUpdate('FULL_SYNC', playlist);
         }, 2000);
-      });
-
-      // THIS IS THE CRITICAL PART: LISTEN FOR THE RECORDING EVENT
-      api.addEventListener('recordingStarted', ({ mode }) => {
-        if (mode === 'file') {
-            const currentTime = Date.now();
-            setRecordingStartTime(currentTime);
-            console.log("Jitsi API Event: recordingStarted. Timestamp capture is now enabled.");
-        }
-      });
-
-      api.addEventListener('recordingStopped', () => {
-        setRecordingStartTime(null);
-        console.log("Jitsi API Event: recordingStopped. Timestamp capture is now disabled.");
       });
 
       api.addEventListener('participantJoined', (event) => {
@@ -531,15 +513,6 @@ function App() {
     return match ? match[1] : null;
   };
 
-  const handleJwtSubmit = async () => {
-    setShowJwtModal(false);
-    cleanupJitsi();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    initializeJitsi();
-  };
-
-  const toggleJwtModal = () => setShowJwtModal(!showJwtModal);
-
   const handleDragStart = (e, video) => {
     setDraggedItem(video);
     e.dataTransfer.effectAllowed = "move";
@@ -563,62 +536,6 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const captureTimestamp = async () => {
-    if (!jitsiApi) {
-      showError("Please wait for the meeting to load and join first.");
-      return;
-    }
-
-    let currentRecordingTime = recordingStartTime;
-
-    // Fallback check: If the event was missed, check the current recording status
-    if (currentRecordingTime === null) {
-      try {
-        const status = await jitsiApi.getRecordingStatus();
-        console.log("Fallback check: Recording status is", status);
-
-        if (status && status.mode === 'file' && status.on) {
-          console.log("Fallback successful! Recording is on, setting start time now.");
-          currentRecordingTime = Date.now();
-          setRecordingStartTime(currentRecordingTime);
-        }
-      } catch (error) {
-        console.error("Error getting recording status:", error);
-      }
-    }
-
-    if (currentRecordingTime === null) {
-      showError("Meeting recording has not started yet. Please start the recording first to use this feature.");
-      return;
-    }
-
-    // Calculate the elapsed time in milliseconds
-    const elapsedTimeInMs = Date.now() - currentRecordingTime;
-
-    // Convert milliseconds to HH:MM:SS format
-    const hours = Math.floor(elapsedTimeInMs / 3600000);
-    const minutes = Math.floor((elapsedTimeInMs % 3600000) / 60000);
-    const seconds = Math.floor((elapsedTimeInMs % 60000) / 1000);
-
-    const formattedTime = [
-        String(hours).padStart(2, '0'),
-        String(minutes).padStart(2, '0'),
-        String(seconds).padStart(2, '0')
-    ].join(':');
-
-    const newTimestamp = {
-      id: Date.now(),
-      time: formattedTime,
-      note: ''
-    };
-    setTimestamps(prev => [...prev, newTimestamp]);
-    setShowTimestampModal(true);
-  };
-
-  const toggleTimestampModal = () => {
-    setShowTimestampModal(!showTimestampModal);
-  };
-
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-950 text-white overflow-hidden">
       {/* Header */}
@@ -627,9 +544,6 @@ function App() {
         <div className="flex items-center justify-between w-full md:w-auto mb-4 md:mb-0">
           <img src={LenskartLogo} alt="Lenskart Logo" className="h-12 w-24" />
           <div className="flex items-center md:hidden gap-2">
-            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-orange-500 hover:text-orange-400" title="Configure JWT">
-              <Key className="w-5 h-5" />
-            </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
@@ -647,11 +561,13 @@ function App() {
               placeholder="Paste YouTube URL..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
+              // Updated UI: Brighter background, placeholder, and white focus border
               className="flex-1 min-w-0 px-4 py-2 rounded-lg bg-gray-700 text-sm placeholder-gray-400 border border-gray-600 focus:border-white focus:ring-1 focus:ring-white transition-colors"
               onKeyPress={(e) => { if (e.key === 'Enter') shareVideoDirectly(); }}
               disabled={isInitializing || isLoadingVideoTitle}
             />
             {!isVideoSharing ? (
+              // Updated UI: More vibrant blue for the Share button
               <Button onClick={shareVideoDirectly} className="bg-blue-600 hover:bg-blue-700 transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
                 Share
               </Button>
@@ -660,22 +576,18 @@ function App() {
                 Stop
               </Button>
             )}
+            {/* Updated UI: Plus button is now a vibrant green */}
             <Button onClick={addToPlaylist} className="bg-green-600 hover:bg-green-700 text-white transition-colors" disabled={!videoUrl.trim() || isInitializing || isLoadingVideoTitle}>
               {isLoadingVideoTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             </Button>
           </div>
           <div className="hidden md:flex items-center gap-2">
-            <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-orange-500 hover:bg-gray-700 hover:text-orange-400" title="Configure JWT">
-              <Key className="w-5 h-5" />
-            </Button>
             <Button onClick={togglePlaylist} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700 hover:text-white" title={`Videos (${playlist.length})`}>
               {showPlaylist ? <ChevronDown className="w-5 h-5" /> : <List className="w-5 h-5" />}
             </Button>
+            {/* Updated UI: Map pin icon is now a vibrant red */}
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
-            </Button>
-            <Button onClick={captureTimestamp} variant="ghost" size="icon" className="text-blue-500 hover:bg-gray-700 hover:text-blue-400" title="Note Timestamp">
-              <NotepadText className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -787,35 +699,6 @@ function App() {
         )}
       </div>
 
-      {/* JWT Modal */}
-      {showJwtModal && (
-        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-white text-xl font-semibold">Enter JWT Token</h2>
-              <Button onClick={toggleJwtModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <p className="text-sm text-gray-400 mb-4">
-              Enter your Jitsi as a Service (JaaS) JSON Web Token to access premium features.
-            </p>
-            <input
-              type="password"
-              placeholder="Paste your JWT token here..."
-              value={jwtToken}
-              onChange={(e) => setJwtToken(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-500 border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
-            />
-            <div className="mt-6 flex justify-end">
-              <Button onClick={handleJwtSubmit} className="bg-blue-600 hover:bg-blue-700 text-white">
-                Apply & Refresh
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Custom Error Modal */}
       {showErrorModal && (
         <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
@@ -835,50 +718,6 @@ function App() {
             <div className="mt-6 flex justify-end">
               <Button onClick={() => setShowErrorModal(false)} className="bg-red-600 hover:bg-red-700 text-white">
                 Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Timestamp Modal */}
-      {showTimestampModal && (
-        <div className="fixed inset-0 bg-gray-950/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center">
-                <NotepadText className="w-6 h-6 text-blue-500 mr-3" />
-                <h2 className="text-white text-xl font-semibold">Meeting Timestamps</h2>
-              </div>
-              <Button onClick={toggleTimestampModal} variant="ghost" size="icon" className="text-gray-400 hover:bg-gray-700">
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <p className="text-sm text-gray-400 mb-4">
-              Timestamps are recorded in HH:MM:SS format relative to the start of the recording.
-            </p>
-            <ul className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-              {timestamps.map(ts => (
-                <li key={ts.id} className="bg-gray-700 p-3 rounded-lg flex justify-between items-center">
-                  <span className="text-lg font-mono text-white">{ts.time}</span>
-                  <input
-                    type="text"
-                    placeholder="Add a note..."
-                    value={ts.note}
-                    onChange={(e) => {
-                      setTimestamps(prev => prev.map(item => item.id === ts.id ? { ...item, note: e.target.value } : item));
-                    }}
-                    className="flex-1 ml-4 px-2 py-1 bg-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </li>
-              ))}
-            </ul>
-            <div className="mt-6 flex justify-end">
-              <Button onClick={() => navigator.clipboard.writeText(timestamps.map(ts => `${ts.time} - ${ts.note}`).join('\n'))} className="bg-blue-600 hover:bg-blue-700 text-white mr-2">
-                Copy to Clipboard
-              </Button>
-              <Button onClick={toggleTimestampModal} className="bg-gray-600 hover:bg-gray-700 text-white">
-                Done
               </Button>
             </div>
           </div>
