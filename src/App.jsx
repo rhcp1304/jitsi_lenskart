@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import {
-  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle, NotepadText
+  MapPin, X, Youtube, List, Plus, Play, Trash2, Key, Loader2, Search, ChevronDown, AlertCircle, NotepadText,
 } from 'lucide-react';
 import EnhancedFreeMap from './components/EnhancedFreeMap.jsx';
 import './App.css';
@@ -27,8 +27,9 @@ function App() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [timestamps, setTimestamps] = useState([]); // New state for timestamps
-  const [showTimestampModal, setShowTimestampModal] = useState(false); // New state for timestamp modal
+  const [timestamps, setTimestamps] = useState([]);
+  const [showTimestampModal, setShowTimestampModal] = useState(false);
+  const [recordingStartTime, setRecordingStartTime] = useState(null); // New state for recording start time
 
   const jitsiContainerRef = useRef(null);
   const [jitsiApi, setJitsiApi] = useState(null);
@@ -283,6 +284,18 @@ function App() {
       const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
+
+      // Event listeners for recording
+      api.addEventListener('recordingStarted', ({ mode }) => {
+        if (mode === 'file') {
+            setRecordingStartTime(Date.now());
+            console.log("Recording started. Timestamp capture is now enabled.");
+        }
+      });
+      api.addEventListener('recordingStopped', () => {
+        setRecordingStartTime(null);
+        console.log("Recording stopped. Timestamp capture is now disabled.");
+      });
 
       api.addEventListener('videoConferenceJoined', (event) => {
         setSyncStatus('connected');
@@ -546,22 +559,36 @@ function App() {
   const handleDragEnd = () => setDraggedItem(null);
   const filteredPlaylist = playlist.filter(video => video.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // New function to handle timestamp capture
   const captureTimestamp = () => {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
+    // Check if the recording has started before trying to capture a timestamp
+    if (!recordingStartTime) {
+      showError("Meeting recording has not started yet. Please start the recording first to use this feature.");
+      return;
+    }
+
+    // Calculate the elapsed time in milliseconds
+    const elapsedTimeInMs = Date.now() - recordingStartTime;
+
+    // Convert milliseconds to HH:MM:SS format
+    const hours = Math.floor(elapsedTimeInMs / 3600000);
+    const minutes = Math.floor((elapsedTimeInMs % 3600000) / 60000);
+    const seconds = Math.floor((elapsedTimeInMs % 60000) / 1000);
+
+    const formattedTime = [
+        String(hours).padStart(2, '0'),
+        String(minutes).padStart(2, '0'),
+        String(seconds).padStart(2, '0')
+    ].join(':');
+
     const newTimestamp = {
       id: Date.now(),
-      time: `${hours}:${minutes}:${seconds}`,
+      time: formattedTime,
       note: ''
     };
     setTimestamps(prev => [...prev, newTimestamp]);
     setShowTimestampModal(true);
   };
 
-  // Function to toggle the timestamp modal
   const toggleTimestampModal = () => {
     setShowTimestampModal(!showTimestampModal);
   };
@@ -621,7 +648,6 @@ function App() {
             <Button onClick={toggleMap} variant="ghost" size="icon" className="text-red-500 hover:bg-gray-700 hover:text-red-400" title="Show Map">
               {showMap ? <X className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </Button>
-            {/* New button to capture timestamp */}
             <Button onClick={captureTimestamp} variant="ghost" size="icon" className="text-blue-500 hover:bg-gray-700 hover:text-blue-400" title="Note Timestamp">
               <NotepadText className="w-5 h-5" />
             </Button>
@@ -803,7 +829,7 @@ function App() {
               </Button>
             </div>
             <p className="text-sm text-gray-400 mb-4">
-              Timestamps are recorded in HH:MM:SS format and can be used to navigate the meeting recording.
+              Timestamps are recorded in HH:MM:SS format relative to the start of the recording.
             </p>
             <ul className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
               {timestamps.map(ts => (
