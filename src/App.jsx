@@ -363,7 +363,7 @@ function App() {
   };
 
   const initializeJitsiOnLoad = () => {
-    const jitsiScriptUrl = 'https://nso-team-meeting.duckdns.org/external_api.js';
+    const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
     if (!existingScript) {
       const script = document.createElement('script');
