@@ -363,7 +363,9 @@ function App() {
   };
 
   const initializeJitsiOnLoad = () => {
-    const jitsiScriptUrl = 'https://meet-nso.diq.geoiq.ai/external_api.js';
+//     const jitsiScriptUrl = 'https://meet-nso.diq.geoiq.ai/external_api.js';
+    const jitsiScriptUrl = `https://meet-nso.diq.geoiq.ai/external_api.js?v=${Date.now()}`;
+
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
     if (!existingScript) {
       const script = document.createElement('script');
