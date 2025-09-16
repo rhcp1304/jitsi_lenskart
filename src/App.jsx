@@ -240,7 +240,7 @@ function App() {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const config = {
-        roomName: 'vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/property-approval-meeting',
+        roomName: 'property-approval-meeting',
         parentNode: jitsiContainerRef.current,
         width: '100%',
         height: '100%',
@@ -278,7 +278,7 @@ function App() {
         config.jwt = jwtToken.trim();
       }
 
-      const api = new window.JitsiMeetExternalAPI('8x8.vc', config);
+      const api = new window.JitsiMeetExternalAPI('meet-nso.diq.geoiq.ai', config);
       const newParticipantId = generateParticipantId();
       setParticipantId(newParticipantId);
 
@@ -363,7 +363,7 @@ function App() {
   };
 
   const initializeJitsiOnLoad = () => {
-    const jitsiScriptUrl = 'https://8x8.vc/vpaas-magic-cookie-b8bac73eabc045188542601ffbd7eb7c/external_api.js';
+    const jitsiScriptUrl = 'https://meet-nso.diq.geoiq.ai/external_api.js';
     const existingScript = document.querySelector(`script[src="${jitsiScriptUrl}"]`);
     if (!existingScript) {
       const script = document.createElement('script');
